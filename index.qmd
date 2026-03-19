@@ -1,0 +1,28 @@
+---
+title: "Evolution Régionale du Surendettement"
+abstract: |
+  Mettre en parallèle les évolutions de l'inclusion financière des ménages français avec les évolution économiques
+---
+
+- Challenge DataViz de la Banque de France
+
+inclusion financière : https://www.banque-france.fr/fr/publications-et-statistiques/statistiques/barometre-mensuel-de-linclusion-financiere-ndeg59-fevrier-2026
+épargne : https://www.banque-france.fr/fr/publications-et-statistiques/statistiques?search_publications_api_fulltext=&theme%5B7171%5D=7171&start-date_year=&start-date_month=&end-date_year=&end-date_month=
+typologie surend : https://www.banque-france.fr/fr/publications-et-statistiques/publications/typologie-du-surendettement-des-menages-2025
+
+> dépot de dossier par rapport à la population active (à voir si population active permet d'englober les dépots de dossier)
+> graph évolution dépot dossier + évol population
+> carte nationale avec découpage des régions pour une info régionale simple, synthétique et claire
+
+## Natioanl
+
+
+
+## régional
+
+
+
+## références
+
+- Webstat
+- INSEE
