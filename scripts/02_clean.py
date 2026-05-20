@@ -8,7 +8,7 @@ Chaque fonction de nettoyage est indépendante : si une source est absente,
 un avertissement est affiché et l'exécution continue normalement.
 
 Sorties dans data/processed/ :
-  surendettement.csv   — BdF PDFs 2018–2023
+  surendettement.csv   — BdF API WebStat 2019–2024 (mensuel agrégé annuel)
   filosofi.csv         — FiLoSoFi 2021 (revenu, pauvreté, interdécile)
   filosofi_gini.csv    — FiLoSoFi SUPRA 2019 (Gini)
   chomage.csv          — Chômage localisé INSEE
@@ -53,119 +53,70 @@ def normalize_name(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# T011 — BdF : extraction PDF → surendettement.csv
+# T011 — BdF : API WebStat CSV → surendettement.csv
 # ---------------------------------------------------------------------------
 
 def clean_surendettement():
-    """Extrait les données de surendettement des PDFs BdF 2018–2023."""
+    """Agrège les données mensuelles BdF (API WebStat) en totaux annuels par département.
+
+    Lit data/raw/bdf/surendettement_api.csv (délimiteur ;), extrait l'année
+    depuis time_period (YYYY-MM), somme les obs_value mensuelles par
+    (dep_code, annee), et filtre les années complètes (2019–2024).
+    Produit data/processed/surendettement.csv.
+    """
     print("\n=== Nettoyage BdF — surendettement ===")
 
-    try:
-        import pdfplumber
-    except ImportError:
-        print("  ✗ pdfplumber non installé — ignorer bloc BdF")
-        return
-
-    dep_ref = load_dep_ref()
-    dep_ref["dep_nom_norm"] = dep_ref["dep_nom"].apply(normalize_name)
-
-    pdfs = {
-        2023: RAW / "bdf" / "synthese_2023.pdf",
-        2022: RAW / "bdf" / "synthese_2022.pdf",
-        2021: RAW / "bdf" / "synthese_2021.pdf",
-        2020: RAW / "bdf" / "synthese_2020.pdf",
-        2019: RAW / "bdf" / "synthese_2019.pdf",
-        2018: RAW / "bdf" / "synthese_2018.pdf",
-    }
-
-    bdf_base_url = (
-        "https://www.banque-france.fr/fr/publications-et-statistiques/publications/"
-        "synthese-nationale-des-rapports-dactivite-des-commissions-de-surendettement"
-    )
-
-    all_rows: list[dict] = []
-
-    for annee, pdf_path in pdfs.items():
-        if not pdf_path.exists():
-            print(f"  ⚠️  {pdf_path.name} absent — ignorer {annee}")
-            continue
-
-        print(f"  ↳ Extraction PDF {annee} …")
-        rows_year: list[dict] = []
-
-        try:
-            with pdfplumber.open(pdf_path) as pdf:
-                for page in pdf.pages:
-                    tables = page.extract_tables()
-                    for table in tables:
-                        if not table:
-                            continue
-                        for row in table:
-                            if not row or not row[0]:
-                                continue
-                            candidate = str(row[0]).strip()
-                            norm = normalize_name(candidate)
-                            # Chercher une correspondance dans dep_ref
-                            match = dep_ref[dep_ref["dep_nom_norm"] == norm]
-                            if match.empty:
-                                # Correspondance partielle (tolérance sur noms composés)
-                                match = dep_ref[
-                                    dep_ref["dep_nom_norm"].apply(
-                                        lambda x: x in norm or norm in x
-                                    )
-                                ]
-                            if match.empty:
-                                continue
-                            # Chercher la colonne des dépôts (premier entier dans la ligne)
-                            depot_nb = None
-                            for cell in row[1:]:
-                                if cell is None:
-                                    continue
-                                cell_clean = re.sub(r"[\s\u00a0]", "", str(cell))
-                                try:
-                                    depot_nb = int(cell_clean)
-                                    break
-                                except ValueError:
-                                    continue
-                            if depot_nb is not None:
-                                rows_year.append({
-                                    "dep_code":         match.iloc[0]["dep_code"],
-                                    "dep_nom":          match.iloc[0]["dep_nom"],
-                                    "annee":            annee,
-                                    "suren_depot_nb":   depot_nb,
-                                    "source_url":       bdf_base_url,
-                                    "source_millesime": str(annee),
-                                })
-        except Exception as exc:
-            print(f"  ✗ Erreur extraction {annee} : {exc}")
-            continue
-
-        # Dédupliquer (garder première occurrence par département)
-        if rows_year:
-            df_year = (
-                pd.DataFrame(rows_year)
-                .drop_duplicates(subset=["dep_code", "annee"])
-            )
-            nb = len(df_year)
-            if nb < 96:
-                print(f"  ⚠️  {annee} : seulement {nb}/96 départements extraits")
-            else:
-                print(f"  ✓ {annee} : {nb} départements extraits")
-            all_rows.extend(df_year.to_dict("records"))
-        else:
-            print(f"  ⚠️  Aucune donnée extraite pour {annee}")
-
-    if not all_rows:
-        print("  ⚠️  Aucune donnée BdF disponible — fichier vide créé")
+    api_csv = RAW / "bdf" / "surendettement_api.csv"
+    if not api_csv.exists():
+        print(f"  ⚠️  {api_csv.name} absent — ignorer bloc BdF")
         pd.DataFrame(
             columns=["dep_code", "dep_nom", "annee", "suren_depot_nb",
                      "source_url", "source_millesime"]
         ).to_csv(PROCESSED / "surendettement.csv", index=False)
         return
 
-    df = pd.DataFrame(all_rows)
-    df.to_csv(PROCESSED / "surendettement.csv", index=False)
-    print(f"  ✓ surendettement.csv — {len(df)} lignes")
+    dep_ref = load_dep_ref()
+    print(f"  ↳ Chargement {api_csv.name} …")
+    df = pd.read_csv(api_csv, sep=";", encoding="utf-8-sig")
+
+    # series_key "IFI.M.D01.SUREN.DEPOT" → dep_code "01", "2A", etc.
+    df["dep_code"] = df["series_key"].str.split(".").str[2].str[1:]
+
+    # time_period "2019-01" → annee 2019
+    df["annee"] = df["time_period"].str[:4].astype(int)
+
+    # Garder uniquement les années complètes 2019–2024
+    ANNEES_COMPLETES = list(range(2019, 2025))
+    df = df[df["annee"].isin(ANNEES_COMPLETES)]
+
+    # Agréger : somme mensuelle → total annuel par département
+    df_annual = (
+        df.groupby(["dep_code", "annee"], as_index=False)["obs_value"]
+        .sum()
+        .rename(columns={"obs_value": "suren_depot_nb"})
+    )
+    df_annual["suren_depot_nb"] = df_annual["suren_depot_nb"].round().astype(int)
+
+    # Joindre les noms de département
+    df_annual = df_annual.merge(dep_ref[["dep_code", "dep_nom"]], on="dep_code", how="left")
+
+    # Métadonnées source
+    df_annual["source_url"] = df_annual["dep_code"].apply(
+        lambda c: f"https://webstat.banque-france.fr/fr/catalogue/ifi/IFI.M.D{c}.SUREN.DEPOT"
+    )
+    df_annual["source_millesime"] = df_annual["annee"].astype(str)
+
+    cols = ["dep_code", "dep_nom", "annee", "suren_depot_nb", "source_url", "source_millesime"]
+    df_annual = df_annual[cols].sort_values(["annee", "dep_code"])
+
+    # Contrôle qualité
+    nb_dep_par_annee = df_annual.groupby("annee")["dep_code"].count()
+    for annee, nb in nb_dep_par_annee.items():
+        flag = "✓" if nb == 96 else "⚠️ "
+        print(f"  {flag} {annee} : {nb}/96 départements")
+
+    df_annual.to_csv(PROCESSED / "surendettement.csv", index=False)
+    print(f"  ✓ surendettement.csv — {len(df_annual)} lignes")
 
 
 # ---------------------------------------------------------------------------

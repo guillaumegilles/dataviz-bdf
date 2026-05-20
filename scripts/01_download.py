@@ -5,7 +5,7 @@
 Exécution : python scripts/01_download.py
 
 Sources :
-  - Banque de France : synthèses surendettement 2018–2023 (PDFs)
+  - Banque de France : surendettement départemental via API WebStat (ODS)
   - INSEE FiLoSoFi 2021 + SUPRA 2019
   - INSEE Chômage localisé (TCRD)
   - INSEE RP 2021 (ménages, population, logement, activité)
@@ -13,8 +13,8 @@ Sources :
   - GeoJSON départements (gregoiredavid/france-geojson)
 """
 
-import os
 import requests
+import urllib.parse
 import zipfile
 import io
 import pathlib
@@ -22,6 +22,11 @@ import pathlib
 ROOT = pathlib.Path(__file__).parent.parent
 RAW  = ROOT / "data" / "raw"
 GEO  = ROOT / "data" / "geo"
+
+# ---------------------------------------------------------------------------
+# BdF WebStat API — clé publique intégrée dans le bundle JavaScript WebStat
+# ---------------------------------------------------------------------------
+BDF_APIKEY = "a78150367a35332580ae1651b4023f0c333e99b6653821d6ac445af9"
 
 # ---------------------------------------------------------------------------
 # Headers anti-bot pour INSEE
@@ -89,34 +94,63 @@ def download_zip(
 
 
 # ---------------------------------------------------------------------------
-# T005 — Bloc BdF : PDFs synthèses surendettement 2018–2023
+# T005 — Bloc BdF : API WebStat (OpenDataSoft) — surendettement mensuel
 # ---------------------------------------------------------------------------
 
 def download_bdf():
-    """Télécharge les synthèses nationales de surendettement BdF 2018–2023."""
-    print("\n=== BdF — Synthèses surendettement ===")
-    dest_dir = RAW / "bdf"
+    """Télécharge les dépôts de dossiers de surendettement BdF via l'API WebStat.
 
-    pdfs = {
-        2023: "https://www.banque-france.fr/system/files/2024-03/SUREN-2023_Rapport-d_activite-des-commissions_web_0.pdf",
-        2022: "https://www.banque-france.fr/system/files/2023-06/SUREN-2022-synthese-nationale.pdf",
-        2021: "https://www.banque-france.fr/system/files/2022-06/SUREN-2021-synthese-nationale.pdf",
-        2020: "https://www.banque-france.fr/system/files/2021-06/suren_2020_synthese_nationale.pdf",
-        2019: "https://www.banque-france.fr/system/files/2020-06/suren_2019_synthese_nationale.pdf",
-        2018: "https://www.banque-france.fr/system/files/2019-06/suren_2018_synthese_nationale.pdf",
+    Utilise l'endpoint ODS export/csv du dataset ``observations`` avec une
+    clé API publique intégrée dans le bundle JavaScript de webstat.banque-france.fr.
+    Couvre 96 départements métropolitains, données mensuelles depuis 2019-01.
+    Résultat : data/raw/bdf/surendettement_api.csv (délimiteur ;).
+    """
+    print("\n=== BdF — Surendettement WebStat API ===")
+    dest = RAW / "bdf" / "surendettement_api.csv"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if dest.exists():
+        print(f"  ✓ Déjà présent : {dest.name}")
+        RESULTS["BdF surendettement API"] = True
+        return
+
+    # 96 codes départementaux métropolitains (hors DOM, hors total national)
+    dep_codes = (
+        [f"{n:02d}" for n in range(1, 20)]   # D01–D19
+        + ["2A", "2B"]                         # Corse
+        + [f"{n:02d}" for n in range(21, 96)]  # D21–D95
+    )
+    series_keys = [f"IFI.M.D{c}.SUREN.DEPOT" for c in dep_codes]
+    keys_sql = ", ".join(f'"{k}"' for k in series_keys)
+    where = f"series_key IN ({keys_sql})"
+
+    params = urllib.parse.urlencode({
+        "where":    where,
+        "select":   "series_key,time_period,obs_value",
+        "order_by": "series_key,time_period",
+        "delimiter": ";",
+    })
+    url = (
+        "https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets/"
+        f"observations/exports/csv/?{params}"
+    )
+    headers = {
+        "Authorization": f"Apikey {BDF_APIKEY}",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
     }
 
-    bdf_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0"
-        ),
-        "Referer": "https://www.banque-france.fr/fr/publications-et-statistiques/publications/synthese-nationale-des-rapports-dactivite-des-commissions-de-surendettement",
-        "Accept": "application/pdf,*/*",
-    }
-
-    for annee, url in pdfs.items():
-        dest = dest_dir / f"synthese_{annee}.pdf"
-        download_file(url, dest, headers=bdf_headers, label=f"BdF synthèse {annee}")
+    print(f"  ↓ API WebStat BdF ({len(series_keys)} séries) …")
+    try:
+        resp = requests.get(url, headers=headers, timeout=120)
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            f.write(resp.content)
+        lines = resp.text.count("\n")
+        print(f"  ✓ {dest.name} ({dest.stat().st_size // 1024} Ko, ~{lines} lignes)")
+        RESULTS["BdF surendettement API"] = True
+    except Exception as exc:
+        print(f"  ✗ ERREUR API BdF : {exc}")
+        RESULTS["BdF surendettement API"] = False
 
 
 # ---------------------------------------------------------------------------
