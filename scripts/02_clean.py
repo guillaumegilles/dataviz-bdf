@@ -270,7 +270,7 @@ def clean_chomage():
         print(f"  ⚠️  Aucun fichier chômage dans {chomage_dir} — chomage.csv vide")
         print("  💡 Télécharger depuis : https://www.insee.fr/fr/statistiques/2012804")
         pd.DataFrame(
-            columns=["dep_code", "annee", "chomage_taux",
+            columns=["dep_code", "chomage_taux",
                      "source_url", "source_millesime"]
         ).to_csv(PROCESSED / "chomage.csv", index=False)
         return
@@ -303,7 +303,7 @@ def clean_chomage():
         if header_row is None:
             print("  ⚠️  Structure du fichier TCRD non reconnue")
             pd.DataFrame(
-                columns=["dep_code", "annee", "chomage_taux",
+                columns=["dep_code", "chomage_taux",
                          "source_url", "source_millesime"]
             ).to_csv(PROCESSED / "chomage.csv", index=False)
             return
@@ -325,27 +325,47 @@ def clean_chomage():
         numeric_cols = df.columns[1:]
         records: list[dict] = []
 
+        # Identifier la colonne Q4 2024 si présente, sinon prendre la dernière colonne
+        ref_col_idx = None
+        if header_row and header_row > 0:
+            headers_row = df_raw.iloc[header_row - 1].tolist()
+            for ci, h in enumerate(headers_row):
+                if h and "2024" in str(h):
+                    ref_col_idx = ci - 1  # colonnes renumérotées à partir de 1
+                    break
+
         for _, row in df.iterrows():
             dep_code = row["dep_code"]
-            values: list[float] = []
-            for col in numeric_cols:
+            # Priorité : colonne de référence Q4 2024 ; sinon moyenne de toutes
+            if ref_col_idx is not None and ref_col_idx in numeric_cols:
                 try:
-                    val = float(str(row[col]).replace(",", ".").strip())
-                    if 0 < val < 30:  # filtre cohérence
-                        values.append(val)
+                    val = float(str(row[ref_col_idx]).replace(",", ".").strip())
+                    chomage_taux = val if 0 < val < 30 else None
                 except (ValueError, TypeError):
-                    pass
-            if values:
-                # Agréger par année : prendre la moyenne des trimestres
-                # On suppose que les colonnes correspondent à des trimestres/années
-                # successives — on agrège toutes les valeurs disponibles
-                chomage_taux = sum(values) / len(values)
+                    chomage_taux = None
+            else:
+                chomage_taux = None
+
+            if chomage_taux is None:
+                # Repli : moyenne de toutes les colonnes numériques disponibles
+                values: list[float] = []
+                for col in numeric_cols:
+                    try:
+                        val = float(str(row[col]).replace(",", ".").strip())
+                        if 0 < val < 30:
+                            values.append(val)
+                    except (ValueError, TypeError):
+                        pass
+                chomage_taux = round(sum(values) / len(values), 2) if values else None
+
+            if chomage_taux is not None:
                 records.append({
                     "dep_code":         dep_code,
-                    "annee":            2021,  # millésime de référence
+                    # Pas d'annee → jointure sur dep_code seul dans 03_merge.py
+                    # (taux de référence Q4 2024 diffusé sur toutes les années)
                     "chomage_taux":     round(chomage_taux, 2),
                     "source_url":       "https://www.insee.fr/fr/statistiques/2012804",
-                    "source_millesime": "2021",
+                    "source_millesime": "2024",
                 })
 
         if records:
@@ -355,14 +375,14 @@ def clean_chomage():
         else:
             print("  ⚠️  Aucune donnée extraite du fichier TCRD")
             pd.DataFrame(
-                columns=["dep_code", "annee", "chomage_taux",
+                columns=["dep_code", "chomage_taux",
                          "source_url", "source_millesime"]
             ).to_csv(PROCESSED / "chomage.csv", index=False)
 
     except Exception as exc:
         print(f"  ✗ Erreur nettoyage chômage : {exc}")
         pd.DataFrame(
-            columns=["dep_code", "annee", "chomage_taux",
+            columns=["dep_code", "chomage_taux",
                      "source_url", "source_millesime"]
         ).to_csv(PROCESSED / "chomage.csv", index=False)
 
