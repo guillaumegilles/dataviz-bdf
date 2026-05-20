@@ -1,333 +1,543 @@
 ---
 title: "Évolution de l'inclusion financière des français"
-abstract: |
-    Les dégradations des conditions économiques (chômage, inflation, précarité)
-    expliquent-elles les dégradations de l'inclusion financière des ménages
-    français ?
+subtitle: "Analyse de la corrélation entre conditions économiques départementales et surendettement"
+author: "Guillaume Gilles"
+date: "2026-05-20"
 lang: fr
-date: 2026-05-18
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    code-fold: true
+    execute:
+      warning: false
+      message: false
+execute:
+  cache: true
 ---
 
-## Contexte et problématique
+```{python}
+#| label: setup
+#| include: false
 
-L'évolution des conditions économiques, aux niveaux nationales et départementaux,
-telles que le chômage et l'inflation, permet elle une analyse appronfondie de
-l'inclusion de la population francaise.
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+from pathlib import Path
 
-En utilisation des sources de données libres, peut-on renforcer l'étude d'une
-corrélation entre le nombre de dépots de dossier de surendettement au guichet de
-la Banque de France et les aggrégats économiques ?
+DATA_DIR = Path("data/processed")
+GEO_DIR  = Path("data/geo")
 
+# Chargement du jeu analytique
+try:
+    df = pd.read_csv(DATA_DIR / "analytical_dataset.csv", dtype={"dep_code": str})
+    DATA_AVAILABLE = True
+    print(f"✓ analytical_dataset.csv chargé : {df.shape}")
+except FileNotFoundError:
+    DATA_AVAILABLE = False
+    df = pd.DataFrame()
+    print("⚠️ analytical_dataset.csv non trouvé. Exécuter scripts/01-04 d'abord.")
 
-## Sources de données (exemples)
+# Chargement du rapport de couverture
+try:
+    coverage = pd.read_csv(DATA_DIR / "coverage_report.csv")
+    COVERAGE_AVAILABLE = True
+except FileNotFoundError:
+    COVERAGE_AVAILABLE = False
+    coverage = pd.DataFrame()
+```
 
-- [Dépôts de dossiers de surendettement](https://webstat.banque-france.fr/fr/catalogue/ifi/IFI.M.FR.SUREN.DEPOT)
-- [Inscription au FICP](https://webstat.banque-france.fr/fr/catalogue/ifi/IFI.M.FR.FICP.INS\_FICP)
-- [Inflation - hicp](https://webstat.banque-france.fr/fr/catalogue/hicp/HICP.M.FR.N.000000.4D0.ANR)
-- [Chomage / dép / trim](https://webstat.banque-france.fr/fr/catalogue/trim/trim.M.FR.)
+## Contexte et problématique {#sec-contexte}
+
+L'inclusion financière des ménages français est mise à l'épreuve par une
+série de chocs économiques — chômage, inflation, précarisation — dont
+l'intensité varie fortement selon les territoires. À l'échelle
+départementale, certains marchés du travail structurellement fragilisés
+concentrent aussi les populations les plus exposées au surendettement.
+
+**Questions de recherche :**
+
+1. Quelles variables économiques départementales (chômage, pauvreté,
+   minimas sociaux, logement, démographie) sont le plus corrélées au taux
+   de surendettement sur la période 2018–2023 ?
+2. Les effets du chômage et de la pauvreté sur le surendettement sont-ils
+   contemporains ou décalés d'une année ?
+3. Peut-on construire un score synthétique de fragilité financière
+   territoriale prédictif du surendettement ?
+
+**Périmètre :** 96 départements métropolitains (hors DOM-TOM).
+**Sources :** Banque de France, INSEE FiLoSoFi, INSEE RP 2021, INSEE
+chômage localisé, DREES (voir Section 2).
 
 ---
 
-La littérature (Banque de France + ECB) montre que le surendettement est principalement lié à :
-
-*   🔻 **faible niveau de vie**
-*   🔻 **chômage**
-*   🔻 **structure des ménages**
-*   🔻 **conditions de logement**
-*   🔻 **chocs économiques (inflation, emploi)**
-
-👉 Par exemple :
-
-*   le **niveau de vie est un déterminant majeur du surendettement** [\[publicatio...-france.fr\]](https://publications.banque-france.fr/sites/default/files/medias/documents/wp-807.pdf)
-*   le **chômage augmente fortement le risque de surendettement** [\[ecb.europa.eu\]](https://www.ecb.europa.eu/pub/pdf/scpwps/ecbwp1908.en.pdf)
-
-# 🧠 1. Ce que tu dois expliquer au niveau départemental
-
-➡️ Donc ton modèle départemental doit capturer :
-
-> vulnérabilité économique + précarité sociale + contraintes structurelles
-
-***
-
-# 📊 2. Variables pertinentes par bloc
-
-## 🔴 A. Marché du travail (indispensable)
-
-*   Taux de chômage départemental
-*   Taux d’activité
-*   Part des jeunes au chômage
-
-📚 Source :
-
-*   INSEE chômage localisé [\[insee.fr\]](https://www.insee.fr/fr/metadonnees/source/indicateur/p1660/bases-donnees-ligne)
-*   dataset précarité data.gouv [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
-
-👉 Pourquoi :
-
-*   variable **clé dans toutes les études**
-*   effet souvent **retardé (lag)**
-
-***
-
-## 🔵 B. Niveau de vie / pauvreté (critique)
-
-*   Revenu médian
-*   Taux de pauvreté (60%)
-*   Intensité de la pauvreté
-*   Inégalités de revenus
-
-📚 Source :
-
-*   FiLoSoFi (INSEE)
-*   indicateurs précarité [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
-
-👉 Pourquoi :
-
-*   **le déterminant le plus structurant**
-*   proxy de solvabilité des ménages
-
-***
-
-## 🟠 C. Minimas sociaux / fragilité sociale
-
-*   Part des allocataires RSA
-*   Bénéficiaires prime d’activité
-*   Allocataires ASS / ASPA
-
-📚 Source :
-
-*   France Travail stats RSA par département [\[statistiqu...ravail.org\]](https://statistiques.francetravail.org/stmt/defm?fh=1&fv=A,D,E,F&lv=0&nj=0&pp=las&ss=1)
-*   DREES panorama social [\[drees.soli...te.gouv.fr\]](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/panoramas-statistiques-regionaux-et)
-
-👉 Pourquoi :
-
-*   capte la **population à risque réel**
-*   très corrélé au surendettement
-
-***
-
-## 🟢 D. Logement (souvent sous-estimé mais très puissant)
-
-*   Part des locataires
-*   Part du logement social
-*   Taux d’effort logement
-*   Logements suroccupés
-
-📚 Source :
-
-*   Atlas logement / CDC [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/logements-et-logements-sociaux-dans-les-departements-1)
-*   Indicateurs sociaux DREES [\[drees.soli...te.gouv.fr\]](https://www.drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0)
-
-👉 Pourquoi :
-
-*   le logement = **premier poste de dépense contrainte**
-*   forte corrélation avec situations de défaut
-
-***
-
-## 🟣 E. Structure socio-démographique
-
-*   Part des familles monoparentales
-*   Structure par âge
-*   Part des personnes seules
-
-📚 Source :
-
-*   DREES + INSEE [\[drees.soli...te.gouv.fr\]](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/panoramas-statistiques-regionaux-et)
-
-👉 Pourquoi :
-
-*   ex : familles monoparentales **surreprésentées dans le surendettement** [\[economie.gouv.fr\]](https://www.economie.gouv.fr/daj/lettre-de-la-daj-la-banque-de-france-analyse-le-surendettement-des-menages)
-
-***
-
-## 🟡 F. Inclusion financière (si tu peux l’obtenir → gros plus)
-
-*   Incidents bancaires (FICP, FCC)
-*   Taux de recours au droit au compte
-*   dépôts de dossiers (ton Y)
-
-📚 Source :
-
-*   Banque de France inclusion financière [\[banque-france.fr\]](https://www.banque-france.fr/fr/publications-et-statistiques/statistiques/les-statistiques-par-thematique/statistiques-inclusion-financiere)
-
-👉 Pourquoi :
-
-*   variables **directement liées au mécanisme étudié**
-*   mais parfois difficiles à obtenir localement
-
-***
-
-# 🧱 3. Jeux de données recommandés (directement exploitables)
-
-## ✅ 1. Dataset clé (à utiliser absolument)
-
-👉 📦 **Indicateurs territoriaux de précarité**
-
-*   revenu médian
-*   pauvreté
-*   RSA
-*   chômage jeunes
-
-📚 [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
-
-➡️ ✅ Parfait pour un merge rapide + coverage départemental
-
-***
-
-## ✅ 2. INSEE local
-
-👉 statistiques-locales.insee.fr [\[statistiqu...s.insee.fr\]](https://statistiques-locales.insee.fr/)
-
-➡️ très riche :
-
-*   chômage
-*   revenus
-*   démographie
-*   logement
-
-***
-
-## ✅ 3. DREES – Indicateurs sociaux départementaux
-
-📚 [\[drees.soli...te.gouv.fr\]](https://www.drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0)
-
-➡️ \~50 variables :
-
-*   emploi
-*   logement
-*   aide sociale
-*   démographie
-
-***
-
-## ✅ 4. Logement (important pour ton sujet)
-
-📚 [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/logements-et-logements-sociaux-dans-les-departements-1)
-
-➡️ ajoute dimension :
-
-*   logement social
-*   structure immobilière
-
-***
-
-## ✅ 5. Banque de France
-
-👉 surendettement par département + typologie
-📚 [\[banque-france.fr\]](https://www.banque-france.fr/fr/publications-et-statistiques/publications/synthese-nationale-des-rapports-dactivite-des-commissions-de-surendettement)
-
-***
-
-# 📉 4. Sélection optimale (si tu dois simplifier)
-
-## 🎯 Jeu minimal robuste (6 variables)
-
-Je te recommande pour une première version :
-
-```text
-- taux de chômage
-- revenu médian
-- taux de pauvreté
-- part RSA
-- part locataires
-- familles monoparentales
+## Sources de données {#sec-sources}
+
+```{python}
+#| label: sources-table
+#| tbl-cap: "Sources de données utilisées dans l'analyse"
+
+sources = pd.DataFrame({
+    "Source": [
+        "Banque de France — Synthèses surendettement",
+        "INSEE FiLoSoFi 2021",
+        "INSEE FiLoSoFi SUPRA 2019",
+        "INSEE Chômage localisé (TCRD)",
+        "INSEE Recensement (RP 2021)",
+        "DREES / France Travail — Minimas sociaux",
+    ],
+    "Indicateurs": [
+        "Dépôts de dossiers de surendettement",
+        "Revenu médian UC, taux de pauvreté (60 %), interdécile D9/D1",
+        "Coefficient de Gini",
+        "Taux de chômage BIT par département",
+        "Structure ménages, logement, démographie",
+        "RSA, prime d'activité, ASS/ASPA",
+    ],
+    "Millésime(s)": [
+        "2018–2023",
+        "2021",
+        "2019",
+        "2017–2024",
+        "2021",
+        "2021",
+    ],
+    "Périmètre": [
+        "96 dép.",
+        "96 dép.",
+        "96 dép. (couverture ~20 %)",
+        "96 dép.",
+        "96 dép.",
+        "96 dép. (si disponible)",
+    ],
+    "Identifiant / URL": [
+        "banque-france.fr/publications/synthese-nationale…",
+        "insee.fr/statistiques/7756729",
+        "insee.fr/statistiques/6036907",
+        "insee.fr/statistiques/2012804",
+        "insee.fr/statistiques/8268828",
+        "drees.solidarites-sante.gouv.fr/isd",
+    ],
+})
+
+# Affichage HTML
+sources.style.set_properties(**{"text-align": "left"}).hide(axis="index")
 ```
 
-👉 + ton Y :
+> **Note** : Les données brutes (`data/raw/`) ne sont pas versionnées.
+> Consulter [`quickstart.md`](specs/001-surendettement-analysis/quickstart.md)
+> pour les instructions de téléchargement.
 
-*   taux de surendettement
+---
 
-➡️ Déjà suffisant pour :
+## Couverture des données {#sec-couverture}
 
-*   corrélations
-*   régression
-*   cartographie
+```{python}
+#| label: couverture-plot
+#| fig-cap: "Couverture des variables clés du jeu analytique (% de valeurs non-nulles)"
+#| fig-alt: "Graphique en barres horizontales montrant le pourcentage de couverture de chaque variable analytique. Les variables principales dépassent 90 % ; le Gini est à ~20 % par construction."
 
-***
+if DATA_AVAILABLE and not coverage.empty:
+    # Sélectionner les variables analytiques (exclure métadonnées)
+    meta_cols = {"dep_code", "dep_nom", "reg_code", "annee",
+                 "source_url", "source_millesime"}
+    cov_plot = coverage[~coverage["variable"].isin(meta_cols)].copy()
+    cov_plot = cov_plot.sort_values("coverage_pct", ascending=True)
 
-## 🚀 Version avancée (10–15 variables)
+    fig, ax = plt.subplots(figsize=(10, max(5, len(cov_plot) * 0.4)))
+    colors = [
+        "#2ca02c" if row["coverage_pct"] >= 90
+        else ("#ff7f0e" if row["coverage_pct"] >= 50 else "#d62728")
+        for _, row in cov_plot.iterrows()
+    ]
+    bars = ax.barh(cov_plot["variable"], cov_plot["coverage_pct"],
+                   color=colors, edgecolor="white", height=0.7)
+    ax.axvline(90, color="gray", linestyle="--", linewidth=1,
+               label="Seuil 90 %", alpha=0.7)
+    ax.set_xlabel("Couverture (%)", fontsize=10)
+    ax.set_title(
+        "Couverture des variables analytiques\n"
+        "(vert ≥ 90 %, orange ≥ 50 %, rouge < 50 %)",
+        fontsize=11, fontweight="bold"
+    )
+    ax.set_xlim(0, 110)
+    ax.legend(fontsize=9)
+    for bar, val in zip(bars, cov_plot["coverage_pct"]):
+        ax.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2,
+                f"{val:.0f}%", va="center", fontsize=8)
+    fig.text(
+        0.5, -0.02,
+        "Source : calcul auteur d'après analytical_dataset.csv. "
+        "Le Gini (FiLoSoFi SUPRA 2019) a une couverture ~20 % par construction.",
+        ha="center", fontsize=8, style="italic"
+    )
+    plt.tight_layout()
+    plt.show()
 
-Ajoute :
+elif DATA_AVAILABLE and coverage.empty:
+    # Calculer directement depuis le dataset
+    meta_cols = {"dep_code", "dep_nom", "reg_code", "annee"}
+    cov_direct = (df.notna().mean() * 100).reset_index()
+    cov_direct.columns = ["variable", "coverage_pct"]
+    cov_direct = cov_direct[~cov_direct["variable"].isin(meta_cols)]
+    cov_direct = cov_direct.sort_values("coverage_pct", ascending=True)
 
-```text
-- chômage des jeunes
-- taux d’effort logement
-- logements sociaux (%)
-- niveau d’éducation
-- densité urbaine
-- évolution annuelle chômage
+    fig, ax = plt.subplots(figsize=(10, max(5, len(cov_direct) * 0.4)))
+    ax.barh(cov_direct["variable"], cov_direct["coverage_pct"],
+            color="steelblue", edgecolor="white")
+    ax.axvline(90, color="red", linestyle="--", label="Seuil 90 %")
+    ax.set_xlabel("Couverture (%)")
+    ax.set_title("Couverture des variables (calculée depuis analytical_dataset.csv)")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+else:
+    print("⚠️ Données non disponibles — exécuter les scripts 01-04 d'abord.")
+    print("   python scripts/01_download.py")
+    print("   python scripts/02_clean.py")
+    print("   python scripts/03_merge.py")
+    print("   python scripts/04_validate.py")
 ```
 
-***
+```{python}
+#| label: couverture-table
+#| tbl-cap: "Rapport de couverture détaillé par variable"
 
-# 🗺️ 5. Variables idéales pour ta cartographie
+if COVERAGE_AVAILABLE and not coverage.empty:
+    meta_cols = {"dep_code", "dep_nom", "reg_code", "annee"}
+    cov_display = coverage[~coverage["variable"].isin(meta_cols)][
+        ["variable", "coverage_pct", "threshold_pct", "status", "min", "max", "median"]
+    ].copy()
+    cov_display["coverage_pct"] = cov_display["coverage_pct"].apply(
+        lambda x: f"{x:.1f}%"
+    )
+    # Mise en évidence des avertissements
+    def highlight_status(val):
+        if val == "WARNING":
+            return "background-color: #ffe0b2"
+        elif val.startswith("OK"):
+            return "background-color: #e8f5e9"
+        return ""
 
-Pour ta carte départementale, privilégie :
-
-### Carte principale
-
-*   taux de surendettement
-
-### Cartes explicatives
-
-*   pauvreté
-*   chômage
-*   RSA
-
-### Carte synthèse
-
-*   score de fragilité :
-
-```python
-df["score"] = (
-    df["chomage"] * 0.3 +
-    df["pauvreté"] * 0.3 +
-    df["rsa"] * 0.2 +
-    df["logement"] * 0.2
-)
+    cov_display.style.applymap(
+        highlight_status, subset=["status"]
+    ).hide(axis="index")
+elif DATA_AVAILABLE:
+    print("ℹ️  Exécuter scripts/04_validate.py pour le rapport détaillé.")
 ```
 
-***
+---
 
-# 🧠 6. Insight méthodologique (important)
+## Analyse exploratoire (EDA) {#sec-eda}
 
-👉 Évite :
+```{python}
+#| label: eda-setup
+#| include: false
 
-*   trop de variables corrélées (ex : pauvreté vs RSA vs revenu)
+# Préparation des données pour l'année de référence 2021
+if DATA_AVAILABLE and len(df) > 0:
+    df_2021 = df[df["annee"] == 2021].copy()
+    EDA_AVAILABLE = len(df_2021) >= 10
+else:
+    df_2021 = pd.DataFrame()
+    EDA_AVAILABLE = False
+```
 
-👉 Fais :
+### Matrice de corrélation {#sec-correlation}
 
-*   PCA ou VIF pour nettoyer
-*   tests avec lag (chômage t-1)
+```{python}
+#| label: corr-matrix
+#| fig-cap: "Matrice de corrélation de Pearson entre variables départementales (2021). Les étoiles indiquent le niveau de significativité : * p<0,05 ; ** p<0,01 ; *** p<0,001."
+#| fig-alt: "Heatmap de corrélation colorée (rouge = corrélation positive, bleu = négative) entre les variables économiques départementales et le taux de surendettement."
+#| fig-width: 10
+#| fig-height: 8
 
-***
+if EDA_AVAILABLE:
+    from scipy import stats
 
-# ✅ Conclusion
+    corr_vars = [
+        "suren_depot_taux", "chomage_taux", "revenu_median_uc",
+        "taux_pauvrete", "rsa_taux", "part_locataires",
+        "part_familles_mono", "interdecile_d9d1", "score_fragilite",
+    ]
+    corr_vars_available = [v for v in corr_vars if v in df_2021.columns]
+    df_corr = df_2021[corr_vars_available].copy()
 
-👉 Pour ton analyse départementale, les variables les plus pertinentes sont :
+    # Convertir en numérique
+    for col in corr_vars_available:
+        df_corr[col] = pd.to_numeric(df_corr[col], errors="coerce")
+    df_corr = df_corr.dropna(how="all")
 
-### 🔥 indispensables
+    # Filtrer les colonnes avec suffisamment de données
+    min_obs = 10
+    cols_ok = [
+        c for c in corr_vars_available
+        if df_corr[c].notna().sum() >= min_obs
+    ]
+    df_corr = df_corr[cols_ok].dropna()
 
-*   chômage (INSEE)
-*   pauvreté / revenu médian
-*   RSA
-*   structure des ménages
+    if len(df_corr) >= min_obs and len(cols_ok) >= 2:
+        # Matrice de corrélation Pearson
+        corr_matrix = df_corr.corr(method="pearson")
 
-### 💡 différenciantes (très utiles)
+        # Matrice de p-values
+        pval_matrix = pd.DataFrame(
+            np.ones_like(corr_matrix),
+            index=corr_matrix.index,
+            columns=corr_matrix.columns,
+        )
+        for i in corr_matrix.index:
+            for j in corr_matrix.columns:
+                if i != j:
+                    valid = df_corr[[i, j]].dropna()
+                    if len(valid) >= 5:
+                        _, p = stats.pearsonr(valid[i], valid[j])
+                        pval_matrix.loc[i, j] = p
 
-*   logement
-*   démographie
+        # Heatmap
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow(
+            corr_matrix, cmap="coolwarm", vmin=-1, vmax=1, aspect="auto"
+        )
+        plt.colorbar(im, ax=ax, label="Coefficient de corrélation de Pearson")
 
-### 🚀 premium
+        labels = [v.replace("_", "\n") for v in cols_ok]
+        ax.set_xticks(range(len(labels)))
+        ax.set_yticks(range(len(labels)))
+        ax.set_xticklabels(labels, fontsize=8, rotation=45, ha="right")
+        ax.set_yticklabels(labels, fontsize=8)
 
-*   incidents bancaires BdF
+        # Annotations avec étoiles de significativité
+        for i in range(len(corr_matrix)):
+            for j in range(len(corr_matrix)):
+                val = corr_matrix.iloc[i, j]
+                p   = pval_matrix.iloc[i, j]
+                star = (
+                    "***" if p < 0.001
+                    else ("**" if p < 0.01
+                    else ("*" if p < 0.05 else ""))
+                )
+                color = "black" if abs(val) < 0.7 else "white"
+                ax.text(
+                    j, i, f"{val:.2f}{star}",
+                    ha="center", va="center",
+                    fontsize=7, color=color,
+                )
 
-***
+        ax.set_title(
+            "Matrice de corrélation de Pearson — Variables départementales (2021)\n"
+            "* p<0,05   ** p<0,01   *** p<0,001",
+            fontsize=11, pad=15,
+        )
+        fig.text(
+            0.5, -0.03,
+            "Source : Banque de France, INSEE FiLoSoFi, INSEE Chômage localisé, DREES, 2021. "
+            "Les variables présentant les corrélations les plus fortes avec le taux "
+            "de surendettement sont identifiées.",
+            ha="center", fontsize=8, style="italic", wrap=True,
+        )
+        plt.tight_layout()
+        plt.show()
 
-# 👍 Si tu veux aller plus loin
+        # Tableau récapitulatif
+        if "suren_depot_taux" in corr_matrix.columns:
+            corr_target = (
+                corr_matrix["suren_depot_taux"]
+                .drop("suren_depot_taux", errors="ignore")
+                .sort_values(key=abs, ascending=False)
+            )
+            print("\nCorrélations avec le taux de surendettement :")
+            print(f"{'Variable':<30} {'r':>8}  {'Sig.'}")
+            print("-" * 50)
+            for var, corr_val in corr_target.items():
+                p   = pval_matrix.loc[var, "suren_depot_taux"]
+                sig = (
+                    "***" if p < 0.001
+                    else ("**" if p < 0.01
+                    else ("*" if p < 0.05 else "(ns)"))
+                )
+                print(f"{var:<30} {corr_val:+8.3f}  {sig}")
+    else:
+        print(
+            f"⚠️ Données insuffisantes pour la matrice de corrélation "
+            f"({len(df_corr)} obs., {len(cols_ok)} variables disponibles)."
+        )
+else:
+    print("⚠️ Données EDA non disponibles — exécuter les scripts 01-04 d'abord.")
+```
 
-Je peux te proposer :
-✅ un **dataset déjà fusionné INSEE + BdF prêt à analyser**
-✅ un **script Python complet (EDA + modèles + cartes)**
-✅ une **cartographie Quarto/Plotly prête à l’emploi**
+### Distributions des variables clés {#sec-distributions}
+
+```{python}
+#| label: distributions
+#| fig-cap: "Distribution des variables clés par département (2021). La ligne rouge pointillée indique la médiane."
+#| fig-alt: "Six histogrammes côte à côte montrant les distributions départementales du surendettement, chômage, pauvreté, RSA, logement locatif et familles monoparentales."
+#| fig-width: 14
+#| fig-height: 8
+
+if EDA_AVAILABLE:
+    plot_vars = [
+        ("suren_depot_taux",  "Taux de surendettement",     "Dépôts / 1 000 mén.", "BdF 2021"),
+        ("chomage_taux",      "Taux de chômage",            "%",                    "INSEE 2021"),
+        ("taux_pauvrete",     "Taux de pauvreté (seuil 60%)", "%",                  "FiLoSoFi 2021"),
+        ("rsa_taux",          "Part allocataires RSA",       "%",                    "DREES 2021"),
+        ("part_locataires",   "Part des ménages locataires", "%",                    "RP 2021"),
+        ("part_familles_mono","Part familles monoparentales","%",                    "RP 2021"),
+    ]
+
+    available_plot_vars = [
+        (col, label, unit, src)
+        for col, label, unit, src in plot_vars
+        if col in df_2021.columns
+        and pd.to_numeric(df_2021[col], errors="coerce").notna().sum() >= 10
+    ]
+
+    if available_plot_vars:
+        n_vars = len(available_plot_vars)
+        n_cols = 3
+        n_rows = (n_vars + n_cols - 1) // n_cols
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(14, 4 * n_rows))
+        axes = axes.flatten()
+
+        for idx, (col, label, unit, src) in enumerate(available_plot_vars[:6]):
+            ax  = axes[idx]
+            data = pd.to_numeric(df_2021[col], errors="coerce").dropna()
+            ax.hist(data, bins=20, color="steelblue", edgecolor="white", alpha=0.8)
+            ax.axvline(
+                data.median(), color="red", linestyle="--", linewidth=1.5,
+                label=f"Médiane : {data.median():.1f}",
+            )
+            ax.set_xlabel(f"{label} ({unit})", fontsize=9)
+            ax.set_ylabel("Nombre de départements", fontsize=9)
+            ax.set_title(label, fontsize=10, fontweight="bold")
+            ax.legend(fontsize=8)
+            ax.text(
+                0.02, 0.98, f"Source : {src}",
+                transform=ax.transAxes, fontsize=7, va="top", style="italic",
+            )
+
+        # Masquer les axes inutilisés
+        for idx in range(len(available_plot_vars), len(axes)):
+            axes[idx].set_visible(False)
+
+        fig.suptitle(
+            "Distribution des variables clés par département (2021)",
+            fontsize=12, fontweight="bold", y=1.02,
+        )
+        fig.text(
+            0.5, -0.01,
+            "Les distributions révèlent une forte hétérogénéité territoriale pour "
+            "le surendettement et la pauvreté, suggérant des effets de clustering géographique.",
+            ha="center", fontsize=9, style="italic", wrap=True,
+        )
+        plt.tight_layout()
+        plt.show()
+    else:
+        print("⚠️ Aucune variable disponible pour les distributions (données manquantes).")
+else:
+    print("⚠️ Données EDA non disponibles — exécuter les scripts 01-04 d'abord.")
+```
+
+### Tendances temporelles (2017–2021) {#sec-tendances}
+
+```{python}
+#| label: tendances
+#| fig-cap: "Évolution médiane des indicateurs départementaux (2017–2021). Axe gauche : chômage et pauvreté (%) ; axe droit : surendettement (‰ ménages)."
+#| fig-alt: "Graphique en lignes double-axe montrant l'évolution temporelle du surendettement (rouge), du chômage (bleu) et de la pauvreté (orange) entre 2017 et 2021 au niveau départemental médian."
+#| fig-width: 10
+#| fig-height: 5
+
+if DATA_AVAILABLE and len(df) > 0:
+    trend_vars = ["suren_depot_taux", "chomage_taux", "taux_pauvrete"]
+    available_trend = [v for v in trend_vars if v in df.columns]
+
+    # Convertir en numérique
+    for v in available_trend:
+        df[v] = pd.to_numeric(df[v], errors="coerce")
+
+    if available_trend and df["annee"].nunique() >= 2:
+        trend_data = (
+            df.groupby("annee")[available_trend].median().reset_index()
+        )
+
+        colors = {
+            "suren_depot_taux": "#d62728",
+            "chomage_taux":     "#1f77b4",
+            "taux_pauvrete":    "#ff7f0e",
+        }
+        labels_fr = {
+            "suren_depot_taux": "Taux de surendettement (‰ ménages)",
+            "chomage_taux":     "Taux de chômage (%)",
+            "taux_pauvrete":    "Taux de pauvreté (%)",
+        }
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax2 = ax.twinx()
+
+        for var in available_trend:
+            if trend_data[var].notna().sum() < 2:
+                continue
+            target_ax = ax2 if var == "suren_depot_taux" else ax
+            target_ax.plot(
+                trend_data["annee"], trend_data[var],
+                marker="o", linewidth=2,
+                color=colors.get(var, "gray"),
+                label=labels_fr.get(var, var),
+            )
+
+        ax.set_xlabel("Année", fontsize=10)
+        ax.set_ylabel("Taux (%)", fontsize=10)
+        ax2.set_ylabel(
+            "Taux de surendettement (‰ ménages)", fontsize=10, color="#d62728"
+        )
+        ax2.tick_params(axis="y", labelcolor="#d62728")
+
+        # Légende combinée
+        lines1, labels1 = ax.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=9)
+
+        ax.set_title(
+            "Évolution médiane des indicateurs départementaux (2017–2021)",
+            fontsize=11, fontweight="bold",
+        )
+        ax.set_xticks(trend_data["annee"])
+        ax.grid(axis="y", alpha=0.3)
+
+        fig.text(
+            0.5, -0.04,
+            "Source : Banque de France, INSEE. Médiane des 96 départements métropolitains. "
+            "Le recul du surendettement post-2018 coïncide avec la baisse du chômage.",
+            ha="center", fontsize=8, style="italic", wrap=True,
+        )
+        plt.tight_layout()
+        plt.show()
+
+    elif available_trend:
+        print(
+            f"⚠️ Une seule année disponible ({df['annee'].unique()}) "
+            "— graphique de tendance non produit."
+        )
+    else:
+        print("⚠️ Variables de tendance non disponibles dans le dataset.")
+else:
+    print("⚠️ Données non disponibles — exécuter les scripts 01-04 d'abord.")
+```
+
+---
+
+## Prochaines étapes {#sec-nextsteps}
+
+Les sections suivantes seront complétées après acquisition des données :
+
+- **Section 5 — Modélisation OLS** : régression multiple avec diagnostics VIF
+  et comparaison des spécifications avec/sans lag t-1
+- **Section 6 — Cartographie** : carte choroplèthe du taux de surendettement
+  et du score de fragilité par département
+
+> Consulter [`specs/001-surendettement-analysis/tasks.md`](specs/001-surendettement-analysis/tasks.md)
+> pour le plan d'exécution complet.

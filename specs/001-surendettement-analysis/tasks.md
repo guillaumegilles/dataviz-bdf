@@ -18,10 +18,10 @@
 
 **Objectif** : Créer la structure de répertoires, l'environnement Python et les fichiers de configuration de base.
 
-- [ ] T001 Créer la structure de répertoires du projet : `data/raw/bdf/`, `data/raw/filosofi/`, `data/raw/chomage/`, `data/raw/rp/`, `data/raw/minimas/`, `data/processed/`, `data/geo/`, `scripts/`
-- [ ] T002 Créer `requirements.txt` avec versions pinnées : pandas≥2.0, geopandas≥0.14, matplotlib≥3.8, plotly≥5.18, statsmodels≥0.14, scikit-learn≥1.4, requests≥2.31, pdfplumber≥0.10, openpyxl≥3.1, pyarrow≥14.0
-- [ ] T003 [P] Créer `.gitignore` en ajoutant `data/raw/` et `data/processed/analytical_dataset.csv` (données brutes non versionnées)
-- [ ] T004 [P] Créer `data/processed/dep_ref.csv` — table de référence 96 départements : colonnes `dep_code`, `dep_nom`, `reg_code` (codes INSEE métropole, incluant `2A`/`2B` Corse)
+- [x] T001 Créer la structure de répertoires du projet : `data/raw/bdf/`, `data/raw/filosofi/`, `data/raw/chomage/`, `data/raw/rp/`, `data/raw/minimas/`, `data/processed/`, `data/geo/`, `scripts/`
+- [x] T002 Créer `requirements.txt` avec versions pinnées : pandas≥2.0, geopandas≥0.14, matplotlib≥3.8, plotly≥5.18, statsmodels≥0.14, scikit-learn≥1.4, requests≥2.31, pdfplumber≥0.10, openpyxl≥3.1, pyarrow≥14.0
+- [x] T003 [P] Créer `.gitignore` en ajoutant `data/raw/` et `data/processed/analytical_dataset.csv` (données brutes non versionnées)
+- [x] T004 [P] Créer `data/processed/dep_ref.csv` — table de référence 96 départements : colonnes `dep_code`, `dep_nom`, `reg_code` (codes INSEE métropole, incluant `2A`/`2B` Corse)
 
 **Point de contrôle** : Structure de répertoires prête, dépendances installables via `pip install -r requirements.txt`
 
@@ -35,25 +35,25 @@
 
 ### Acquisition des données (script 01)
 
-- [ ] T005 Créer `scripts/01_download.py` — bloc BdF : télécharger les PDFs synthèses surendettement 2018–2023 dans `data/raw/bdf/synthese_{annee}.pdf` via URLs directes banque-france.fr (6 fichiers)
-- [ ] T006 [P] Compléter `scripts/01_download.py` — bloc FiLoSoFi : télécharger et décompresser `base-cc-filosofi-2021-geo2024_csv.zip` et `indic-struct-distrib-revenu-2019-SUPRA.zip` dans `data/raw/filosofi/`
-- [ ] T007 [P] Compléter `scripts/01_download.py` — bloc chômage : télécharger les fichiers TCRD Excel chômage localisé INSEE avec headers anti-bot (`User-Agent`, `Referer`) dans `data/raw/chomage/` ; afficher un avertissement et l'URL manuelle si HTTP 500
-- [ ] T008 [P] Compléter `scripts/01_download.py` — bloc RP 2021 : télécharger et décompresser les 4 bases infracommunales (ménages, population, logement, activité) dans `data/raw/rp/`
-- [ ] T009 [P] Compléter `scripts/01_download.py` — bloc minimas sociaux : télécharger RSA, prime d'activité, ASS/ASPA depuis DREES/France Travail dans `data/raw/minimas/`
-- [ ] T010 [P] Compléter `scripts/01_download.py` — bloc GeoJSON : télécharger `departements-version-simplifiee.geojson` depuis `gregoiredavid/france-geojson` dans `data/geo/departements.geojson`
+- [x] T005 Créer `scripts/01_download.py` — bloc BdF : télécharger les PDFs synthèses surendettement 2018–2023 dans `data/raw/bdf/synthese_{annee}.pdf` via URLs directes banque-france.fr (6 fichiers)
+- [x] T006 [P] Compléter `scripts/01_download.py` — bloc FiLoSoFi : télécharger et décompresser `base-cc-filosofi-2021-geo2024_csv.zip` et `indic-struct-distrib-revenu-2019-SUPRA.zip` dans `data/raw/filosofi/`
+- [x] T007 [P] Compléter `scripts/01_download.py` — bloc chômage : télécharger les fichiers TCRD Excel chômage localisé INSEE avec headers anti-bot (`User-Agent`, `Referer`) dans `data/raw/chomage/` ; afficher un avertissement et l'URL manuelle si HTTP 500
+- [x] T008 [P] Compléter `scripts/01_download.py` — bloc RP 2021 : télécharger et décompresser les 4 bases infracommunales (ménages, population, logement, activité) dans `data/raw/rp/`
+- [x] T009 [P] Compléter `scripts/01_download.py` — bloc minimas sociaux : télécharger RSA, prime d'activité, ASS/ASPA depuis DREES/France Travail dans `data/raw/minimas/`
+- [x] T010 [P] Compléter `scripts/01_download.py` — bloc GeoJSON : télécharger `departements-version-simplifiee.geojson` depuis `gregoiredavid/france-geojson` dans `data/geo/departements.geojson`
 
 ### Nettoyage par source (script 02)
 
-- [ ] T011 Créer `scripts/02_clean.py` — bloc BdF : extraire tableaux PDF avec `pdfplumber`, jointure noms → codes via `dep_ref.csv`, produire `data/processed/surendettement.csv` (colonnes : `dep_code`, `annee`, `suren_depot_nb`, `source_url`, `source_millesime`) ; assertion 96 lignes par année
-- [ ] T012 [P] Compléter `scripts/02_clean.py` — bloc FiLoSoFi : filtrer lignes département (`CODGEO` longueur 2 ou pattern `^[0-9]{2}$|^2[AB]$`), renommer `MED21`→`revenu_median_uc`, `TP6021`→`taux_pauvrete`, `GI21`→`interdecile_d9d1`, produire `data/processed/filosofi.csv` ; charger SUPRA 2019 pour `gini`, produire `data/processed/filosofi_gini.csv`
-- [ ] T013 [P] Compléter `scripts/02_clean.py` — bloc chômage : sélectionner 96 départements métropolitains (exclure DOM 971–976), agréger trimestres → moyenne annuelle, produire `data/processed/chomage.csv` (colonnes : `dep_code`, `annee`, `chomage_taux`, `source_url`, `source_millesime`)
-- [ ] T014 [P] Compléter `scripts/02_clean.py` — bloc RP 2021 : `groupby('DEP').sum()` sur chaque base IC ; calculer `part_locataires`, `part_hlm`, `part_familles_mono`, `part_menages_1pers`, `part_25_54`, `part_65plus`, `taux_surpeuplement` ; produire `data/processed/rp_menages.csv`, `rp_logement.csv`, `rp_population.csv`
-- [ ] T015 [P] Compléter `scripts/02_clean.py` — bloc minimas sociaux : calculer `rsa_taux`, `prime_activite_taux`, `ass_aspa_taux` en part de population de référence (RP), produire `data/processed/minimas_sociaux.csv`
+- [x] T011 Créer `scripts/02_clean.py` — bloc BdF : extraire tableaux PDF avec `pdfplumber`, jointure noms → codes via `dep_ref.csv`, produire `data/processed/surendettement.csv` (colonnes : `dep_code`, `annee`, `suren_depot_nb`, `source_url`, `source_millesime`) ; assertion 96 lignes par année
+- [x] T012 [P] Compléter `scripts/02_clean.py` — bloc FiLoSoFi : filtrer lignes département (`CODGEO` longueur 2 ou pattern `^[0-9]{2}$|^2[AB]$`), renommer `MED21`→`revenu_median_uc`, `TP6021`→`taux_pauvrete`, `GI21`→`interdecile_d9d1`, produire `data/processed/filosofi.csv` ; charger SUPRA 2019 pour `gini`, produire `data/processed/filosofi_gini.csv`
+- [x] T013 [P] Compléter `scripts/02_clean.py` — bloc chômage : sélectionner 96 départements métropolitains (exclure DOM 971–976), agréger trimestres → moyenne annuelle, produire `data/processed/chomage.csv` (colonnes : `dep_code`, `annee`, `chomage_taux`, `source_url`, `source_millesime`)
+- [x] T014 [P] Compléter `scripts/02_clean.py` — bloc RP 2021 : `groupby('DEP').sum()` sur chaque base IC ; calculer `part_locataires`, `part_hlm`, `part_familles_mono`, `part_menages_1pers`, `part_25_54`, `part_65plus`, `taux_surpeuplement` ; produire `data/processed/rp_menages.csv`, `rp_logement.csv`, `rp_population.csv`
+- [x] T015 [P] Compléter `scripts/02_clean.py` — bloc minimas sociaux : calculer `rsa_taux`, `prime_activite_taux`, `ass_aspa_taux` en part de population de référence (RP), produire `data/processed/minimas_sociaux.csv`
 
 ### Fusion et validation (scripts 03 & 04)
 
-- [ ] T016 Créer `scripts/03_merge.py` : joindre tous les fichiers intermédiaires sur `(dep_code, annee)`, construire les lags t-1 **en unités brutes** (`chomage_taux_t1`, `taux_pauvrete_t1`) avant toute normalisation, calculer `score_fragilite` = `chomage_z×0,3 + taux_pauvrete_z×0,3 + rsa_taux_z×0,2 + part_locataires_z×0,2` (z-scores des 4 composantes), exporter `data/processed/analytical_dataset.csv` (schéma complet conforme à `contracts/data-contracts.md` §2)
-- [ ] T017 Créer `scripts/04_validate.py` : vérifier les invariants du contrat de sortie (`dep_code.nunique()==96`, `suren_depot_taux.notna().all()`, couverture ≥ 90 % par variable), afficher les avertissements pour `gini` (comportement attendu : 20,8 % couverte), produire `data/processed/coverage_report.csv`
+- [x] T016 Créer `scripts/03_merge.py` : joindre tous les fichiers intermédiaires sur `(dep_code, annee)`, construire les lags t-1 **en unités brutes** (`chomage_taux_t1`, `taux_pauvrete_t1`) avant toute normalisation, calculer `score_fragilite` = `chomage_z×0,3 + taux_pauvrete_z×0,3 + rsa_taux_z×0,2 + part_locataires_z×0,2` (z-scores des 4 composantes), exporter `data/processed/analytical_dataset.csv` (schéma complet conforme à `contracts/data-contracts.md` §2)
+- [x] T017 Créer `scripts/04_validate.py` : vérifier les invariants du contrat de sortie (`dep_code.nunique()==96`, `suren_depot_taux.notna().all()`, couverture ≥ 90 % par variable), afficher les avertissements pour `gini` (comportement attendu : 20,8 % couverte), produire `data/processed/coverage_report.csv`
 
 **Point de contrôle** : `python scripts/04_validate.py` s'exécute sans erreur fatale ; `analytical_dataset.csv` existe avec ≥ 96 lignes et 25 colonnes
 
@@ -65,9 +65,9 @@
 
 **Test indépendant** : Exécuter `python scripts/04_validate.py` et vérifier que `coverage_report.csv` est produit avec une ligne par variable ; consulter la section « Sources » de `index.qmd` et vérifier que chaque tableau présente nom, URL, millésime et nombre de départements.
 
-- [ ] T018 [US1] Ajouter une section « Sources de données » dans `index.qmd` : tableau des 7 sources (nom, URL/identifiant série, millésime(s) utilisé(s), nombre de départements couverts) généré programmatiquement depuis `coverage_report.csv` (FR-008)
-- [ ] T019 [US1] Ajouter la section « Couverture des données manquantes » dans `index.qmd` : tableau et/ou heatmap des valeurs manquantes par variable et par département, généré depuis `data/processed/coverage_report.csv` (FR-014) — titre, source, caption obligatoires (FR-024)
-- [ ] T020 [P] [US1] Vérifier que `data/raw/` est bien dans `.gitignore` et que `data/processed/analytical_dataset.csv` n'est pas versionné ; documenter ce choix dans `README.md` section « Données »
+- [x] T018 [US1] Ajouter une section « Sources de données » dans `index.qmd` : tableau des 7 sources (nom, URL/identifiant série, millésime(s) utilisé(s), nombre de départements couverts) généré programmatiquement depuis `coverage_report.csv` (FR-008)
+- [x] T019 [US1] Ajouter la section « Couverture des données manquantes » dans `index.qmd` : tableau et/ou heatmap des valeurs manquantes par variable et par département, généré depuis `data/processed/coverage_report.csv` (FR-014) — titre, source, caption obligatoires (FR-024)
+- [x] T020 [P] [US1] Vérifier que `data/raw/` est bien dans `.gitignore` et que `data/processed/analytical_dataset.csv` n'est pas versionné ; documenter ce choix dans `README.md` section « Données »
 
 **Point de contrôle** : Section « Sources » rendue dans `index.qmd` ; couverture affichée ; aucun fichier brut commité
 
@@ -79,9 +79,9 @@
 
 **Test indépendant** : Exécuter `quarto render index.qmd` après avoir complété uniquement la Phase 3 + cette phase ; vérifier que la matrice de corrélation s'affiche et que chaque figure respecte le contrat FR-024 (titre + axes + source + caption).
 
-- [ ] T021 [US2] Implémenter la matrice de corrélation dans `index.qmd` : Pearson **et** Spearman entre toutes les variables et `suren_depot_taux`, avec p-values (statsmodels ou scipy) ; heatmap `coolwarm` avec annotations, titre, source, caption (FR-011, FR-024)
-- [ ] T022 [P] [US2] Implémenter les distributions dans `index.qmd` : histogrammes + boxplots pour chaque variable clé (6 variables du modèle minimal + variable cible), identification des valeurs extrêmes, titre/axe/source/caption par figure (FR-012, FR-024)
-- [ ] T023 [P] [US2] Implémenter les tendances temporelles dans `index.qmd` : graphique en lignes pour `suren_depot_taux` + `chomage_taux` + `taux_pauvrete` sur 2017–2021 (si ≥ 2 millésimes disponibles), axe X = années, axe Y avec unité, source, caption (FR-013, FR-024)
+- [x] T021 [US2] Implémenter la matrice de corrélation dans `index.qmd` : Pearson **et** Spearman entre toutes les variables et `suren_depot_taux`, avec p-values (statsmodels ou scipy) ; heatmap `coolwarm` avec annotations, titre, source, caption (FR-011, FR-024)
+- [x] T022 [P] [US2] Implémenter les distributions dans `index.qmd` : histogrammes + boxplots pour chaque variable clé (6 variables du modèle minimal + variable cible), identification des valeurs extrêmes, titre/axe/source/caption par figure (FR-012, FR-024)
+- [x] T023 [P] [US2] Implémenter les tendances temporelles dans `index.qmd` : graphique en lignes pour `suren_depot_taux` + `chomage_taux` + `taux_pauvrete` sur 2017–2021 (si ≥ 2 millésimes disponibles), axe X = années, axe Y avec unité, source, caption (FR-013, FR-024)
 
 **Point de contrôle** : Rendu Quarto produit ≥ 3 figures conformes FR-024 dans la section EDA ; matrice identifie ≥ 3 variables avec p < 0,05 (SC-002)
 

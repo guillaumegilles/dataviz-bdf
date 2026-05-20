@@ -1,57 +1,66 @@
-# Spec-Driven Development Project Template
+# dataviz-bdf — Inclusion financière des ménages français
 
-A GitHub repository template for **Spec-Driven Development (SDD)** — a workflow
-where every feature starts as a written specification before any code is written.
+Analyse de la corrélation entre les conditions économiques départementales
+(chômage, pauvreté, minimas sociaux, logement, démographie) et le taux de
+surendettement des ménages en France métropolitaine (96 départements).
 
-## What is Spec-Driven Development?
+## Résultats
 
-SDD enforces a structured, document-first development process:
+Consulter le rapport Quarto : `index.html` (après exécution du pipeline)
 
-1. **Specify** — write a feature spec with user stories, requirements, and
-   acceptance criteria
-2. **Clarify** — surface ambiguities and encode answers back into the spec
-3. **Plan** — produce a technical design (data model, contracts, project
-   structure)
-4. **Tasks** — break the plan into a dependency-ordered task list
-5. **Implement** — execute tasks one-by-one, guided by the spec
-6. **Analyze** — cross-check spec, plan, and tasks for consistency
+## Installation
 
-Each step is supported by a [Spec Kit](https://github.com/github/spec-kit)
-command available through GitHub Copilot.
-
-## What's Included
-
-```sh
-.specify/
-├── templates/          # Spec, plan, tasks, constitution & checklist templates
-├── extensions/         # Git integration hooks (auto-branch, auto-commit)
-├── extensions.yml      # Hook configuration for each workflow step
-├── workflows/          # Spec Kit workflow definitions
-└── integrations/       # Optional third-party integrations
+```bash
+git clone https://github.com/guillaumegilles/dataviz-bdf.git
+cd dataviz-bdf
+python3 -m venv .venv
+source .venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
 ```
 
-### Key Concepts
+## Données
 
-| Artifact | Command | Purpose |
-|---|---|---|
-| `constitution.md` | `speckit.constitution` | Project-wide principles and non-negotiables |
-| `spec.md` | `speckit.specify` | Feature specification (user stories, requirements) |
-| `plan.md` | `speckit.plan` | Technical design and research |
-| `tasks.md` | `speckit.tasks` | Ordered, actionable implementation tasks |
+Les données brutes (`data/raw/`) ne sont pas versionnées.
+Voir [quickstart.md](specs/001-surendettement-analysis/quickstart.md) pour le détail.
 
-## Getting Started
+> ⚠️ Si le téléchargement du chômage localisé INSEE échoue (anti-bot),
+> télécharger manuellement depuis <https://www.insee.fr/fr/statistiques/2012804>
+> et placer le fichier dans `data/raw/chomage/`.
 
-1. **Use this template** — click *Use this template* on GitHub to create your repo
-2. **Set your constitution** — run `speckit.constitution` to define your project's
-   core principles
-3. **Start a feature** — run `speckit.specify` with a plain-language description
-4. **Follow the workflow** — progress through clarify → plan → tasks → implement
+## Exécution
 
-## Git Integration
+```bash
+python scripts/01_download.py   # Téléchargement des sources
+python scripts/02_clean.py      # Nettoyage par source
+python scripts/03_merge.py      # Fusion → analytical_dataset.csv
+python scripts/04_validate.py   # Validation + coverage_report.csv
+quarto render index.qmd         # Génération du rapport HTML
+```
 
-The template ships with automatic Git hooks:
-- Creates a feature branch before specification (`speckit.git.feature`)
-- Auto-commits after each workflow step
-- Initializes the repository on first use (`speckit.git.initialize`)
+## Mise à jour des données
 
-Configure or disable hooks in `.specify/extensions.yml`.
+Modifier les URLs dans `scripts/01_download.py` pour pointer vers les
+millésimes les plus récents, puis relancer les étapes 2 à 5.
+
+## Structure
+
+```
+data/raw/          # Sources brutes (gitignorées)
+data/processed/    # Données nettoyées et jeu analytique
+data/geo/          # GeoJSON départements (contours)
+scripts/           # Pipeline de données (01 → 04)
+  01_download.py   # Téléchargement de toutes les sources
+  02_clean.py      # Nettoyage et normalisation par source
+  03_merge.py      # Fusion et calcul du score_fragilite
+  04_validate.py   # Validation du contrat de données
+index.qmd          # Rapport Quarto (source de vérité)
+specs/             # Spécifications et plan technique
+```
+
+## Références
+
+- [Constitution du projet](.specify/memory/constitution.md)
+- [Spécification](specs/001-surendettement-analysis/spec.md)
+- [Plan technique](specs/001-surendettement-analysis/plan.md)
+- [Guide de démarrage](specs/001-surendettement-analysis/quickstart.md)
+- [Contrats de données](specs/001-surendettement-analysis/contracts/data-contracts.md)
