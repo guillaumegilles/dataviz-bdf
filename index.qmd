@@ -1,28 +1,333 @@
 ---
-title: "Evolution Régionale du Surendettement"
+title: "Évolution de l'inclusion financière des français"
 abstract: |
-  Mettre en parallèle les évolutions de l'inclusion financière des ménages français avec les évolution économiques
+    Les dégradations des conditions économiques (chômage, inflation, précarité)
+    expliquent-elles les dégradations de l'inclusion financière des ménages
+    français ?
+lang: fr
+date: 2026-05-18
 ---
 
-- Challenge DataViz de la Banque de France
+## Contexte et problématique
 
-inclusion financière : https://www.banque-france.fr/fr/publications-et-statistiques/statistiques/barometre-mensuel-de-linclusion-financiere-ndeg59-fevrier-2026
-épargne : https://www.banque-france.fr/fr/publications-et-statistiques/statistiques?search_publications_api_fulltext=&theme%5B7171%5D=7171&start-date_year=&start-date_month=&end-date_year=&end-date_month=
-typologie surend : https://www.banque-france.fr/fr/publications-et-statistiques/publications/typologie-du-surendettement-des-menages-2025
+L'évolution des conditions économiques, aux niveaux nationales et départementaux,
+telles que le chômage et l'inflation, permet elle une analyse appronfondie de
+l'inclusion de la population francaise.
 
-> dépot de dossier par rapport à la population active (à voir si population active permet d'englober les dépots de dossier)
-> graph évolution dépot dossier + évol population
-> carte nationale avec découpage des régions pour une info régionale simple, synthétique et claire
-
-## Natioanl
+En utilisation des sources de données libres, peut-on renforcer l'étude d'une
+corrélation entre le nombre de dépots de dossier de surendettement au guichet de
+la Banque de France et les aggrégats économiques ?
 
 
+## Sources de données (exemples)
 
-## régional
+- [Dépôts de dossiers de surendettement](https://webstat.banque-france.fr/fr/catalogue/ifi/IFI.M.FR.SUREN.DEPOT)
+- [Inscription au FICP](https://webstat.banque-france.fr/fr/catalogue/ifi/IFI.M.FR.FICP.INS\_FICP)
+- [Inflation - hicp](https://webstat.banque-france.fr/fr/catalogue/hicp/HICP.M.FR.N.000000.4D0.ANR)
+- [Chomage / dép / trim](https://webstat.banque-france.fr/fr/catalogue/trim/trim.M.FR.)
 
+---
 
+La littérature (Banque de France + ECB) montre que le surendettement est principalement lié à :
 
-## références
+*   🔻 **faible niveau de vie**
+*   🔻 **chômage**
+*   🔻 **structure des ménages**
+*   🔻 **conditions de logement**
+*   🔻 **chocs économiques (inflation, emploi)**
 
-- Webstat
-- INSEE
+👉 Par exemple :
+
+*   le **niveau de vie est un déterminant majeur du surendettement** [\[publicatio...-france.fr\]](https://publications.banque-france.fr/sites/default/files/medias/documents/wp-807.pdf)
+*   le **chômage augmente fortement le risque de surendettement** [\[ecb.europa.eu\]](https://www.ecb.europa.eu/pub/pdf/scpwps/ecbwp1908.en.pdf)
+
+# 🧠 1. Ce que tu dois expliquer au niveau départemental
+
+➡️ Donc ton modèle départemental doit capturer :
+
+> vulnérabilité économique + précarité sociale + contraintes structurelles
+
+***
+
+# 📊 2. Variables pertinentes par bloc
+
+## 🔴 A. Marché du travail (indispensable)
+
+*   Taux de chômage départemental
+*   Taux d’activité
+*   Part des jeunes au chômage
+
+📚 Source :
+
+*   INSEE chômage localisé [\[insee.fr\]](https://www.insee.fr/fr/metadonnees/source/indicateur/p1660/bases-donnees-ligne)
+*   dataset précarité data.gouv [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
+
+👉 Pourquoi :
+
+*   variable **clé dans toutes les études**
+*   effet souvent **retardé (lag)**
+
+***
+
+## 🔵 B. Niveau de vie / pauvreté (critique)
+
+*   Revenu médian
+*   Taux de pauvreté (60%)
+*   Intensité de la pauvreté
+*   Inégalités de revenus
+
+📚 Source :
+
+*   FiLoSoFi (INSEE)
+*   indicateurs précarité [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
+
+👉 Pourquoi :
+
+*   **le déterminant le plus structurant**
+*   proxy de solvabilité des ménages
+
+***
+
+## 🟠 C. Minimas sociaux / fragilité sociale
+
+*   Part des allocataires RSA
+*   Bénéficiaires prime d’activité
+*   Allocataires ASS / ASPA
+
+📚 Source :
+
+*   France Travail stats RSA par département [\[statistiqu...ravail.org\]](https://statistiques.francetravail.org/stmt/defm?fh=1&fv=A,D,E,F&lv=0&nj=0&pp=las&ss=1)
+*   DREES panorama social [\[drees.soli...te.gouv.fr\]](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/panoramas-statistiques-regionaux-et)
+
+👉 Pourquoi :
+
+*   capte la **population à risque réel**
+*   très corrélé au surendettement
+
+***
+
+## 🟢 D. Logement (souvent sous-estimé mais très puissant)
+
+*   Part des locataires
+*   Part du logement social
+*   Taux d’effort logement
+*   Logements suroccupés
+
+📚 Source :
+
+*   Atlas logement / CDC [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/logements-et-logements-sociaux-dans-les-departements-1)
+*   Indicateurs sociaux DREES [\[drees.soli...te.gouv.fr\]](https://www.drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0)
+
+👉 Pourquoi :
+
+*   le logement = **premier poste de dépense contrainte**
+*   forte corrélation avec situations de défaut
+
+***
+
+## 🟣 E. Structure socio-démographique
+
+*   Part des familles monoparentales
+*   Structure par âge
+*   Part des personnes seules
+
+📚 Source :
+
+*   DREES + INSEE [\[drees.soli...te.gouv.fr\]](https://drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/panoramas-statistiques-regionaux-et)
+
+👉 Pourquoi :
+
+*   ex : familles monoparentales **surreprésentées dans le surendettement** [\[economie.gouv.fr\]](https://www.economie.gouv.fr/daj/lettre-de-la-daj-la-banque-de-france-analyse-le-surendettement-des-menages)
+
+***
+
+## 🟡 F. Inclusion financière (si tu peux l’obtenir → gros plus)
+
+*   Incidents bancaires (FICP, FCC)
+*   Taux de recours au droit au compte
+*   dépôts de dossiers (ton Y)
+
+📚 Source :
+
+*   Banque de France inclusion financière [\[banque-france.fr\]](https://www.banque-france.fr/fr/publications-et-statistiques/statistiques/les-statistiques-par-thematique/statistiques-inclusion-financiere)
+
+👉 Pourquoi :
+
+*   variables **directement liées au mécanisme étudié**
+*   mais parfois difficiles à obtenir localement
+
+***
+
+# 🧱 3. Jeux de données recommandés (directement exploitables)
+
+## ✅ 1. Dataset clé (à utiliser absolument)
+
+👉 📦 **Indicateurs territoriaux de précarité**
+
+*   revenu médian
+*   pauvreté
+*   RSA
+*   chômage jeunes
+
+📚 [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/indicateurs-territoriaux-de-precarite-par-commune-epci-departement-et-region)
+
+➡️ ✅ Parfait pour un merge rapide + coverage départemental
+
+***
+
+## ✅ 2. INSEE local
+
+👉 statistiques-locales.insee.fr [\[statistiqu...s.insee.fr\]](https://statistiques-locales.insee.fr/)
+
+➡️ très riche :
+
+*   chômage
+*   revenus
+*   démographie
+*   logement
+
+***
+
+## ✅ 3. DREES – Indicateurs sociaux départementaux
+
+📚 [\[drees.soli...te.gouv.fr\]](https://www.drees.solidarites-sante.gouv.fr/communique-de-presse-jeux-de-donnees/jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0)
+
+➡️ \~50 variables :
+
+*   emploi
+*   logement
+*   aide sociale
+*   démographie
+
+***
+
+## ✅ 4. Logement (important pour ton sujet)
+
+📚 [\[data.gouv.fr\]](https://www.data.gouv.fr/datasets/logements-et-logements-sociaux-dans-les-departements-1)
+
+➡️ ajoute dimension :
+
+*   logement social
+*   structure immobilière
+
+***
+
+## ✅ 5. Banque de France
+
+👉 surendettement par département + typologie
+📚 [\[banque-france.fr\]](https://www.banque-france.fr/fr/publications-et-statistiques/publications/synthese-nationale-des-rapports-dactivite-des-commissions-de-surendettement)
+
+***
+
+# 📉 4. Sélection optimale (si tu dois simplifier)
+
+## 🎯 Jeu minimal robuste (6 variables)
+
+Je te recommande pour une première version :
+
+```text
+- taux de chômage
+- revenu médian
+- taux de pauvreté
+- part RSA
+- part locataires
+- familles monoparentales
+```
+
+👉 + ton Y :
+
+*   taux de surendettement
+
+➡️ Déjà suffisant pour :
+
+*   corrélations
+*   régression
+*   cartographie
+
+***
+
+## 🚀 Version avancée (10–15 variables)
+
+Ajoute :
+
+```text
+- chômage des jeunes
+- taux d’effort logement
+- logements sociaux (%)
+- niveau d’éducation
+- densité urbaine
+- évolution annuelle chômage
+```
+
+***
+
+# 🗺️ 5. Variables idéales pour ta cartographie
+
+Pour ta carte départementale, privilégie :
+
+### Carte principale
+
+*   taux de surendettement
+
+### Cartes explicatives
+
+*   pauvreté
+*   chômage
+*   RSA
+
+### Carte synthèse
+
+*   score de fragilité :
+
+```python
+df["score"] = (
+    df["chomage"] * 0.3 +
+    df["pauvreté"] * 0.3 +
+    df["rsa"] * 0.2 +
+    df["logement"] * 0.2
+)
+```
+
+***
+
+# 🧠 6. Insight méthodologique (important)
+
+👉 Évite :
+
+*   trop de variables corrélées (ex : pauvreté vs RSA vs revenu)
+
+👉 Fais :
+
+*   PCA ou VIF pour nettoyer
+*   tests avec lag (chômage t-1)
+
+***
+
+# ✅ Conclusion
+
+👉 Pour ton analyse départementale, les variables les plus pertinentes sont :
+
+### 🔥 indispensables
+
+*   chômage (INSEE)
+*   pauvreté / revenu médian
+*   RSA
+*   structure des ménages
+
+### 💡 différenciantes (très utiles)
+
+*   logement
+*   démographie
+
+### 🚀 premium
+
+*   incidents bancaires BdF
+
+***
+
+# 👍 Si tu veux aller plus loin
+
+Je peux te proposer :
+✅ un **dataset déjà fusionné INSEE + BdF prêt à analyser**
+✅ un **script Python complet (EDA + modèles + cartes)**
+✅ une **cartographie Quarto/Plotly prête à l’emploi**
