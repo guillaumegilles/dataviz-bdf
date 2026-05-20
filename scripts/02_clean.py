@@ -331,7 +331,7 @@ def clean_chomage():
             headers_row = df_raw.iloc[header_row - 1].tolist()
             for ci, h in enumerate(headers_row):
                 if h and "2024" in str(h):
-                    ref_col_idx = ci - 1  # colonnes renumérotées à partir de 1
+                    ref_col_idx = ci  # index de colonne dans df (0-basé, identique au raw)
                     break
 
         for _, row in df.iterrows():

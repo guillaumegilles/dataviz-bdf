@@ -4,18 +4,9 @@ subtitle: "Analyse de la corrélation entre conditions économiques département
 author: "Guillaume Gilles"
 date: "2026-05-20"
 lang: fr
-format:
-  html:
-    toc: true
-    toc-depth: 3
-    number-sections: true
-    theme: cosmo
-    code-fold: true
-    execute:
-      warning: false
-      message: false
 execute:
-  cache: true
+  echo: false
+  warning: false
 ---
 
 ```{python}
@@ -77,7 +68,7 @@ chômage localisé, DREES (voir Section 2).
 ## Sources de données {#sec-sources}
 
 ```{python}
-#| label: sources-table
+#| label: tbl-sources-table
 #| tbl-cap: "Sources de données utilisées dans l'analyse"
 
 sources = pd.DataFrame({
@@ -136,7 +127,7 @@ sources.style.set_properties(**{"text-align": "left"}).hide(axis="index")
 ## Couverture des données {#sec-couverture}
 
 ```{python}
-#| label: couverture-plot
+#| label: fig-couverture-plot
 #| fig-cap: "Couverture des variables clés du jeu analytique (% de valeurs non-nulles)"
 #| fig-alt: "Graphique en barres horizontales montrant le pourcentage de couverture de chaque variable analytique. Les variables principales dépassent 90 % ; le Gini est à ~20 % par construction."
 
@@ -204,7 +195,7 @@ else:
 ```
 
 ```{python}
-#| label: couverture-table
+#| label: tbl-couverture-table
 #| tbl-cap: "Rapport de couverture détaillé par variable"
 
 if COVERAGE_AVAILABLE and not coverage.empty:
@@ -223,7 +214,7 @@ if COVERAGE_AVAILABLE and not coverage.empty:
             return "background-color: #e8f5e9"
         return ""
 
-    cov_display.style.applymap(
+    cov_display.style.map(
         highlight_status, subset=["status"]
     ).hide(axis="index")
 elif DATA_AVAILABLE:
@@ -245,12 +236,21 @@ if DATA_AVAILABLE and len(df) > 0:
 else:
     df_2021 = pd.DataFrame()
     EDA_AVAILABLE = False
+
+# Déterminer si suren_depot_taux est un vrai taux (‰ ménages) ou un nombre brut
+suren_is_rate = (
+    DATA_AVAILABLE
+    and "suren_depot_taux" in df.columns
+    and pd.to_numeric(df["suren_depot_taux"], errors="coerce").median() < 100
+)
+suren_unit_label = "Dépôts / 1 000 mén." if suren_is_rate else "nb brut"
+suren_axis_label = "Taux de surendettement (‰ ménages)" if suren_is_rate else "Dépôts de surendettement (nb)"
 ```
 
 ### Matrice de corrélation {#sec-correlation}
 
 ```{python}
-#| label: corr-matrix
+#| label: fig-corr-matrix
 #| fig-cap: "Matrice de corrélation de Pearson entre variables départementales (2021). Les étoiles indiquent le niveau de significativité : * p<0,05 ; ** p<0,01 ; *** p<0,001."
 #| fig-alt: "Heatmap de corrélation colorée (rouge = corrélation positive, bleu = négative) entre les variables économiques départementales et le taux de surendettement."
 #| fig-width: 10
@@ -373,7 +373,7 @@ else:
 ### Distributions des variables clés {#sec-distributions}
 
 ```{python}
-#| label: distributions
+#| label: fig-distributions
 #| fig-cap: "Distribution des variables clés par département (2021). La ligne rouge pointillée indique la médiane."
 #| fig-alt: "Six histogrammes côte à côte montrant les distributions départementales du surendettement, chômage, pauvreté, RSA, logement locatif et familles monoparentales."
 #| fig-width: 14
@@ -381,7 +381,7 @@ else:
 
 if EDA_AVAILABLE:
     plot_vars = [
-        ("suren_depot_taux",  "Taux de surendettement",     "Dépôts / 1 000 mén.", "BdF 2021"),
+        ("suren_depot_taux",  "Taux de surendettement",     suren_unit_label,       "BdF 2021"),
         ("chomage_taux",      "Taux de chômage",            "%",                    "INSEE 2021"),
         ("taux_pauvrete",     "Taux de pauvreté (seuil 60%)", "%",                  "FiLoSoFi 2021"),
         ("rsa_taux",          "Part allocataires RSA",       "%",                    "DREES 2021"),
@@ -442,12 +442,12 @@ else:
     print("⚠️ Données EDA non disponibles — exécuter les scripts 01-04 d'abord.")
 ```
 
-### Tendances temporelles (2017–2021) {#sec-tendances}
+### Tendances temporelles (2019–2024) {#sec-tendances}
 
 ```{python}
-#| label: tendances
-#| fig-cap: "Évolution médiane des indicateurs départementaux (2017–2021). Axe gauche : chômage et pauvreté (%) ; axe droit : surendettement (‰ ménages)."
-#| fig-alt: "Graphique en lignes double-axe montrant l'évolution temporelle du surendettement (rouge), du chômage (bleu) et de la pauvreté (orange) entre 2017 et 2021 au niveau départemental médian."
+#| label: fig-tendances
+#| fig-cap: "Évolution médiane des indicateurs départementaux (2019–2024). Axe gauche : chômage et pauvreté (%) ; axe droit : surendettement."
+#| fig-alt: "Graphique en lignes double-axe montrant l'évolution temporelle du surendettement (rouge), du chômage (bleu) et de la pauvreté (orange) entre 2019 et 2024 au niveau départemental médian."
 #| fig-width: 10
 #| fig-height: 5
 
@@ -470,7 +470,7 @@ if DATA_AVAILABLE and len(df) > 0:
             "taux_pauvrete":    "#ff7f0e",
         }
         labels_fr = {
-            "suren_depot_taux": "Taux de surendettement (‰ ménages)",
+            "suren_depot_taux": suren_axis_label,
             "chomage_taux":     "Taux de chômage (%)",
             "taux_pauvrete":    "Taux de pauvreté (%)",
         }
@@ -491,9 +491,7 @@ if DATA_AVAILABLE and len(df) > 0:
 
         ax.set_xlabel("Année", fontsize=10)
         ax.set_ylabel("Taux (%)", fontsize=10)
-        ax2.set_ylabel(
-            "Taux de surendettement (‰ ménages)", fontsize=10, color="#d62728"
-        )
+        ax2.set_ylabel(suren_axis_label, fontsize=10, color="#d62728")
         ax2.tick_params(axis="y", labelcolor="#d62728")
 
         # Légende combinée
@@ -502,7 +500,7 @@ if DATA_AVAILABLE and len(df) > 0:
         ax.legend(lines1 + lines2, labels1 + labels2, loc="upper right", fontsize=9)
 
         ax.set_title(
-            "Évolution médiane des indicateurs départementaux (2017–2021)",
+            "Évolution médiane des indicateurs départementaux (2019–2024)",
             fontsize=11, fontweight="bold",
         )
         ax.set_xticks(trend_data["annee"])
