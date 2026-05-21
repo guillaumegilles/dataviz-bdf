@@ -406,100 +406,166 @@ def clean_rp():
 
 # ---------------------------------------------------------------------------
 # T015 — Minimas sociaux → minimas_sociaux.csv
+# DREES : suivi mensuel des prestations de solidarité (RSA, ASS, prime d'activité)
+# Source : https://data.drees.solidarites-sante.gouv.fr/explore/dataset/
+#          donnees-mensuelles-sur-les-prestations-de-solidarite/
 # ---------------------------------------------------------------------------
 
 def clean_minimas():
+    """Parse le XLSX DREES des prestations de solidarité.
 
-    """Nettoie les données de minimas sociaux."""
-    print("\n=== Nettoyage Minimas sociaux ===")
+    Extrait les effectifs de décembre (snapshot fin d'année) pour 2019-2024
+    aux tableaux :
+      - Tableau 3 : RSA
+      - Tableau 5 : ASS
+      - Tableau 6 : prime d'activité
+    Normalise par la population municipale (RP 2022) → taux pour 1 000 hab.
+    """
+    print("\n=== Nettoyage Minimas sociaux (DREES) ===")
 
     minimas_dir = RAW / "minimas"
     dep_ref = load_dep_ref()
 
-    files = (
-        list(minimas_dir.glob("**/*.xlsx"))
-        + list(minimas_dir.glob("**/*.xls"))
-        + list(minimas_dir.glob("**/*.csv"))
-    )
-
-    if not files:
-        print(
-            f"  ⚠️  Aucun fichier dans {minimas_dir} "
-            "— création d'un placeholder avec NaN"
-        )
-        placeholder = dep_ref[["dep_code"]].copy()
-        placeholder["annee"] = 2021
-        placeholder["rsa_taux"] = float("nan")
-        placeholder["prime_activite_taux"] = float("nan")
-        placeholder["ass_aspa_taux"] = float("nan")
-        placeholder["source_url"] = (
-            "https://drees.solidarites-sante.gouv.fr/"
-            "jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0"
-        )
-        placeholder["source_millesime"] = "N/A"
-        placeholder.to_csv(PROCESSED / "minimas_sociaux.csv", index=False)
-        print("  ℹ️  minimas_sociaux.csv créé avec NaN — à remplacer si données disponibles")
+    xlsx_files = list(minimas_dir.glob("*.xlsx")) + list(minimas_dir.glob("*.xls"))
+    if not xlsx_files:
+        print(f"  ⚠️  Aucun fichier XLSX dans {minimas_dir} — placeholder NaN")
+        _write_minimas_placeholder(dep_ref)
         return
 
-    filepath = files[0]
+    filepath = next(
+        (f for f in xlsx_files if "prestations" in f.name.lower() or "drees" in f.name.lower()),
+        xlsx_files[0],
+    )
     print(f"  ↳ Chargement {filepath.name} …")
+
     try:
-        if filepath.suffix in (".xlsx", ".xls"):
-            df = pd.read_excel(filepath, dtype=str)
-        else:
-            df = pd.read_csv(filepath, dtype=str, sep=None, engine="python")
-
-        # Tentative de mapping des colonnes
-        col_map = {}
-        for col in df.columns:
-            col_up = col.upper()
-            if "RSA" in col_up and "TAUX" in col_up:
-                col_map[col] = "rsa_taux"
-            elif "RSA" in col_up and "ALLOC" in col_up:
-                col_map[col] = "rsa_nb"
-            elif "PRIME" in col_up or "PA_" in col_up:
-                col_map[col] = "prime_activite_taux"
-            elif "ASS" in col_up or "ASPA" in col_up:
-                col_map[col] = "ass_aspa_taux"
-            elif re.match(r"(DEP|COD|GEO)", col_up):
-                col_map[col] = "dep_code"
-
-        df = df.rename(columns=col_map)
-
-        if "dep_code" not in df.columns:
-            print("  ⚠️  Colonne code département non identifiée")
-            raise ValueError("dep_code manquant")
-
-        mask = df["dep_code"].str.match(r"^([0-9]{2}|2[AB])$", na=False)
-        df = df[mask].copy()
-        df["annee"] = 2021
-        df["source_url"] = "https://drees.solidarites-sante.gouv.fr/"
-        df["source_millesime"] = "2021"
-
-        keep = ["dep_code", "annee"] + [
-            c for c in ["rsa_taux", "prime_activite_taux", "ass_aspa_taux"]
-            if c in df.columns
-        ] + ["source_url", "source_millesime"]
-        df = df[keep]
-
-        # Compléter avec NaN si colonnes manquantes
-        for col in ("rsa_taux", "prime_activite_taux", "ass_aspa_taux"):
-            if col not in df.columns:
-                df[col] = float("nan")
-
-        df.to_csv(PROCESSED / "minimas_sociaux.csv", index=False)
-        print(f"  ✓ minimas_sociaux.csv — {len(df)} lignes")
-
+        import openpyxl
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
     except Exception as exc:
-        print(f"  ✗ Erreur minimas : {exc} — placeholder créé")
-        placeholder = dep_ref[["dep_code"]].copy()
-        placeholder["annee"] = 2021
-        placeholder["rsa_taux"] = float("nan")
-        placeholder["prime_activite_taux"] = float("nan")
-        placeholder["ass_aspa_taux"] = float("nan")
-        placeholder["source_url"] = ""
-        placeholder["source_millesime"] = "N/A"
-        placeholder.to_csv(PROCESSED / "minimas_sociaux.csv", index=False)
+        print(f"  ✗ Impossible d'ouvrir {filepath.name} : {exc}")
+        _write_minimas_placeholder(dep_ref)
+        return
+
+    metro_codes = set(dep_ref["dep_code"].tolist()) if not dep_ref.empty else set()
+
+    def parse_tableau(sheet_name: str, col_label: str) -> pd.DataFrame:
+        """Parse un tableau DREES dept × mois → snapshot décembre par année."""
+        if sheet_name not in wb.sheetnames:
+            print(f"  ⚠️  Feuille {sheet_name} absente")
+            return pd.DataFrame()
+        ws = wb[sheet_name]
+        all_rows = list(ws.iter_rows(values_only=True))
+        if len(all_rows) < 8:
+            return pd.DataFrame()
+
+        num_row = all_rows[4]  # Row 5 : numéros département (1, 2, 2A, 2B…)
+
+        # Construire col_idx → dep_code (metropolitain uniquement)
+        col_to_dep: dict[int, str] = {}
+        for ci, num in enumerate(num_row):
+            if num is None:
+                continue
+            ns = str(num).strip()
+            if ns in ("2A", "2B"):
+                dep_code = ns
+            elif ns.isdigit() and 1 <= int(ns) <= 95:
+                dep_code = str(int(ns)).zfill(2)
+            else:
+                continue
+            if not metro_codes or dep_code in metro_codes:
+                col_to_dep[ci] = dep_code
+
+        records = []
+        for row in all_rows[7:]:
+            dt = row[0]
+            if dt is None:
+                continue
+            try:
+                if hasattr(dt, "year"):
+                    year, month = dt.year, dt.month
+                else:
+                    parsed = pd.to_datetime(str(dt))
+                    year, month = parsed.year, parsed.month
+            except Exception:
+                continue
+            # Snapshot fin d'année (décembre)
+            if month != 12 or year < 2019 or year > 2024:
+                continue
+            for ci, dep_code in col_to_dep.items():
+                raw = row[ci]
+                if raw is None:
+                    continue
+                try:
+                    val = float(str(raw).replace("*", "").strip())
+                    records.append({"annee": year, "dep_code": dep_code, col_label: val})
+                except (ValueError, AttributeError):
+                    pass
+        return pd.DataFrame(records)
+
+    rsa = parse_tableau("Tableau 3", "rsa_nb")
+    ass = parse_tableau("Tableau 5", "ass_nb")
+    pa  = parse_tableau("Tableau 6", "prime_activite_nb")
+
+    if rsa.empty and ass.empty and pa.empty:
+        print("  ⚠️  Aucun tableau parsé — placeholder NaN")
+        _write_minimas_placeholder(dep_ref)
+        return
+
+    # Fusionner les 3 tableaux
+    df = rsa.merge(ass, on=["annee", "dep_code"], how="outer") \
+            .merge(pa,  on=["annee", "dep_code"], how="outer")
+
+    # Normaliser par population municipale (RP 2022) → taux pour 1 000 hab.
+    pop_ref_path = PROCESSED / "rp_pop_ref.csv"
+    if pop_ref_path.exists():
+        pop = pd.read_csv(pop_ref_path, dtype={"dep_code": str})
+        if "population_mun" in pop.columns:
+            df = df.merge(pop[["dep_code", "population_mun"]], on="dep_code", how="left")
+            for nb_col, rate_col in [
+                ("rsa_nb",             "rsa_taux"),
+                ("ass_nb",             "ass_aspa_taux"),
+                ("prime_activite_nb",  "prime_activite_taux"),
+            ]:
+                if nb_col in df.columns:
+                    df[rate_col] = (
+                        df[nb_col] / df["population_mun"].replace(0, float("nan")) * 1000
+                    ).round(3)
+            df = df.drop(columns=["population_mun"])
+    else:
+        print("  ⚠️  rp_pop_ref.csv absent — colonnes _taux non calculées")
+        for rate_col in ("rsa_taux", "ass_aspa_taux", "prime_activite_taux"):
+            df[rate_col] = float("nan")
+
+    df["source_url"] = (
+        "https://data.drees.solidarites-sante.gouv.fr/explore/dataset/"
+        "donnees-mensuelles-sur-les-prestations-de-solidarite/"
+    )
+    df["source_millesime"] = "2019-2024"
+
+    keep = ["dep_code", "annee",
+            "rsa_taux", "prime_activite_taux", "ass_aspa_taux",
+            "rsa_nb", "ass_nb", "prime_activite_nb",
+            "source_url", "source_millesime"]
+    df = df[[c for c in keep if c in df.columns]]
+    df.to_csv(PROCESSED / "minimas_sociaux.csv", index=False)
+    print(f"  ✓ minimas_sociaux.csv — {len(df)} lignes")
+    cov_rsa = df['rsa_taux'].notna().sum() if 'rsa_taux' in df.columns else 0
+    print(f"    RSA taux couverture : {cov_rsa}/{len(df)} lignes")
+
+
+def _write_minimas_placeholder(dep_ref: pd.DataFrame) -> None:
+    """Écrit un CSV placeholder avec NaN pour les minimas sociaux."""
+    ph = dep_ref[["dep_code"]].copy() if not dep_ref.empty else pd.DataFrame(columns=["dep_code"])
+    ph["annee"] = 2021
+    for col in ("rsa_taux", "prime_activite_taux", "ass_aspa_taux"):
+        ph[col] = float("nan")
+    ph["source_url"] = (
+        "https://data.drees.solidarites-sante.gouv.fr/explore/dataset/"
+        "donnees-mensuelles-sur-les-prestations-de-solidarite/"
+    )
+    ph["source_millesime"] = "N/A"
+    ph.to_csv(PROCESSED / "minimas_sociaux.csv", index=False)
+    print("  ℹ️  minimas_sociaux.csv créé avec NaN")
 
 
 # ---------------------------------------------------------------------------

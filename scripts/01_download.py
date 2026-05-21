@@ -285,71 +285,47 @@ def download_rp():
 
 
 # ---------------------------------------------------------------------------
-# T009 — Bloc minimas sociaux (DREES / France Travail)
+# T009 — Bloc minimas sociaux (DREES open data)
+# Source : https://data.drees.solidarites-sante.gouv.fr/explore/dataset/
+#          donnees-mensuelles-sur-les-prestations-de-solidarite/information/
 # ---------------------------------------------------------------------------
 
 def download_minimas():
-    """Télécharge les données de minimas sociaux DREES / France Travail.
-    Si indisponibles, affiche les instructions de téléchargement manuel.
-    """
-    print("\n=== DREES / France Travail — Minimas sociaux ===")
+    """Télécharge le suivi mensuel des prestations de solidarité DREES (RSA, ASS, prime d'activité)."""
+    print("\n=== DREES — Prestations de solidarité (RSA, ASS, prime d'activité) ===")
     dest_dir = RAW / "minimas"
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # Tentatives d'URLs connues pour les données RSA départementales
-    urls = [
-        # DREES - allocataires de minima sociaux
-        (
-            "https://drees.solidarites-sante.gouv.fr/sites/default/files/2023-07/"
-            "er1314.xlsx",
-            dest_dir / "drees_minimas_sociaux.xlsx",
-            "DREES minimas sociaux",
-        ),
-        # Open data France Travail (ancien Pôle Emploi) — allocataires RSA
-        (
-            "https://statistiques.francetravail.org/stmt/tele?file=DEFM_DEP.zip",
-            dest_dir / "DEFM_DEP.zip",
-            "France Travail RSA dép.",
-        ),
-    ]
+    dest = dest_dir / "drees_prestations_solidarite.xlsx"
+    if dest.exists():
+        print(f"  ✓ Déjà présent : {dest.name}")
+        RESULTS["DREES minimas sociaux"] = True
+        return
 
-    success = False
-    for url, dest, label in urls:
-        if dest.exists():
-            print(f"  ✓ Déjà présent : {dest.name}")
-            RESULTS[label] = True
-            success = True
-            break
-        try:
-            resp = requests.get(url, timeout=60, stream=True)
-            resp.raise_for_status()
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            if str(dest).endswith(".zip"):
-                with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-                    z.extractall(dest_dir)
-                print(f"  ✓ ZIP extrait dans {dest_dir}")
-            else:
-                with open(dest, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                print(f"  ✓ {dest.name} ({dest.stat().st_size // 1024} Ko)")
-            RESULTS[label] = True
-            success = True
-            break
-        except Exception as exc:
-            print(f"  ✗ {label} : {exc}")
-            RESULTS[label] = False
-
-    if not success:
+    # L'API OpenDataSoft expose le fichier comme pièce jointe
+    url = (
+        "https://data.drees.solidarites-sante.gouv.fr/api/explore/v2.1/catalog/"
+        "datasets/donnees-mensuelles-sur-les-prestations-de-solidarite/attachments/"
+        "donnees_mensuelles_prestations_solidarite_fevrier26_xlsx"
+    )
+    try:
+        resp = requests.get(url, timeout=120, stream=True, headers=HEADERS_INSEE)
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        print(f"  ✓ {dest.name} ({dest.stat().st_size // 1024} Ko)")
+        RESULTS["DREES minimas sociaux"] = True
+    except Exception as exc:
+        print(f"  ✗ Téléchargement DREES : {exc}")
         print(
-            "\n  ⚠️  Téléchargement des minimas sociaux échoué."
-            "\n  Sources alternatives :"
-            "\n    - DREES indicateurs sociaux départ. :"
-            "\n      https://drees.solidarites-sante.gouv.fr/jeux-de-donnees/indicateurs-sociaux-departementaux-isd-mise-0"
-            "\n    - Open data France Travail :"
-            "\n      https://statistiques.francetravail.org/stmt/defm"
-            "\n  Placer les fichiers dans : data/raw/minimas/"
+            "\n  ⚠️  Téléchargement échoué."
+            "\n  Télécharger manuellement depuis :"
+            "\n    https://data.drees.solidarites-sante.gouv.fr/explore/dataset/"
+            "donnees-mensuelles-sur-les-prestations-de-solidarite/"
+            "\n  Placer le fichier dans : data/raw/minimas/"
         )
-        RESULTS["Minimas sociaux"] = False
+        RESULTS["DREES minimas sociaux"] = False
 
 
 # ---------------------------------------------------------------------------
