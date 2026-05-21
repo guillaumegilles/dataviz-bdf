@@ -13,6 +13,7 @@ Sorties dans data/processed/ :
   filosofi_gini.csv    — FiLoSoFi SUPRA 2019 (Gini)
   chomage.csv          — Chômage localisé INSEE
   rp_pop_ref.csv       — RP 2022 populations de référence (population municipale par département)
+  rp_infracommunal.csv — RP 2022 bases infracommunales (locataires, HLM, surpeuplement, familles mono…)
   minimas_sociaux.csv  — RSA, prime d'activité, ASS/ASPA
 """
 
@@ -347,26 +348,41 @@ def clean_chomage():
 
 
 # ---------------------------------------------------------------------------
-# T014 — RP 2022 : populations de référence
-# INSEE RP 2022 populations de référence (communes / depts)
-# Source : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
-# Note : les bases infracommunales RP 2022 ne sont pas encore publiées.
-#        On utilise uniquement la population municipale (PMUN) comme dénominateur
-#        pour le taux de surendettement pour 10 000 habitants.
+# T014 — RP 2022 : populations de référence + bases infracommunales
+# Sources :
+#   - Pop. de référence  : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
+#   - Logement (IRIS)    : https://www.insee.fr/fr/statistiques/8647012
+#   - Ménages (IRIS)     : https://www.insee.fr/fr/statistiques/8647008
+#   - Population (IRIS)  : https://www.insee.fr/fr/statistiques/8647014
 # ---------------------------------------------------------------------------
 
+def _read_iris_csv(zip_path: pathlib.Path, usecols: list[str]) -> pd.DataFrame:
+    """Lit le premier CSV dans un ZIP IRIS, en ne chargeant que les colonnes utiles."""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        csvs = [n for n in z.namelist() if n.lower().endswith(".csv")
+                and not n.lower().startswith("meta")]
+        if not csvs:
+            raise FileNotFoundError(f"Aucun CSV dans {zip_path.name}")
+        with z.open(csvs[0]) as f:
+            df = pd.read_csv(
+                f, sep=";", dtype=str, low_memory=False,
+                usecols=lambda c: c in (["COM"] + usecols),
+            )
+    return df
+
+
 def clean_rp():
-    """Extrait la population municipale 2022 par département (RP 2022 pop. de référence)."""
+    """Extrait les indicateurs RP 2022 par département (pop. référence + infracommunales)."""
     print("\n=== Nettoyage RP 2022 (populations de référence) ===")
 
     rp_dir = RAW / "rp"
     dep_ref = load_dep_ref()
 
-    # Le ZIP contient donnees_departements.csv directement dans la racine
+    # ── 1. Populations de référence (agrégat départemental) ─────────────────
     dep_csv = rp_dir / "donnees_departements.csv"
 
     if not dep_csv.exists():
-        # Essayer aussi depuis le ZIP si pas encore extrait
         import zipfile
         zip_path = list(rp_dir.glob("ensemble.zip"))
         if zip_path:
@@ -381,27 +397,102 @@ def clean_rp():
         )
         return
 
-    print(f"  ↳ Chargement {dep_csv.name} …")
-    df = pd.read_csv(dep_csv, sep=";", dtype=str)
+    df_ref = pd.read_csv(dep_csv, sep=";", dtype=str)
+    df_ref = df_ref.rename(columns={"DEP": "dep_code", "PMUN": "population_mun"})
+    df_ref["population_mun"] = pd.to_numeric(df_ref["population_mun"], errors="coerce")
 
-    # Colonnes : REG, Région, DEP, Département, NBARR, NBCAN, NBCOM, PMUN, PTOT
-    df = df.rename(columns={"DEP": "dep_code", "PMUN": "population_mun"})
-    df["population_mun"] = pd.to_numeric(df["population_mun"], errors="coerce")
-
-    # Garder uniquement les 96 départements métropolitains (codes 2 chars: 01-95, 2A, 2B)
     metro = dep_ref["dep_code"].tolist() if not dep_ref.empty else []
     if metro:
-        df = df[df["dep_code"].isin(metro)].copy()
+        df_ref = df_ref[df_ref["dep_code"].isin(metro)].copy()
     else:
-        df = df[df["dep_code"].str.match(r"^([0-9]{2}|2[AB])$", na=False)].copy()
+        df_ref = df_ref[df_ref["dep_code"].str.match(r"^([0-9]{2}|2[AB])$", na=False)].copy()
 
-    df = df[["dep_code", "population_mun"]].copy()
-    df["source_url"] = "https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669"
-    df["source_millesime"] = "2022"
+    df_ref = df_ref[["dep_code", "population_mun"]].copy()
+    df_ref["source_url"] = "https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669"
+    df_ref["source_millesime"] = "2022"
 
-    df.to_csv(PROCESSED / "rp_pop_ref.csv", index=False)
-    print(f"  ✓ rp_pop_ref.csv — {len(df)} départements")
-    print(f"  ℹ️  Bases infracommunales RP 2022 (locataires, ménages…) non encore publiées")
+    df_ref.to_csv(PROCESSED / "rp_pop_ref.csv", index=False)
+    print(f"  ✓ rp_pop_ref.csv — {len(df_ref)} départements")
+
+    # ── 2. Bases infracommunales IRIS ────────────────────────────────────────
+    print("\n=== Nettoyage RP 2022 (bases infracommunales) ===")
+
+    def agg_dep(zip_path: pathlib.Path, usecols: list[str]) -> pd.DataFrame | None:
+        """Agrège les colonnes numériques par département depuis un CSV IRIS zippé."""
+        if not zip_path.exists():
+            print(f"  ⚠️  {zip_path.name} non trouvé — ignoré")
+            return None
+        print(f"  ↳ Lecture {zip_path.name} …")
+        df = _read_iris_csv(zip_path, usecols)
+        if "COM" not in df.columns:
+            print(f"  ⚠️  Colonne COM absente dans {zip_path.name}")
+            return None
+        # Extraire le code département depuis le code commune INSEE (2 premiers chars)
+        # Format communes : "01001" → "01", "2A001" → "2A", "2B003" → "2B"
+        df["dep_code"] = df["COM"].str[:2]
+        for c in usecols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+        df = df.groupby("dep_code", as_index=False)[
+            [c for c in usecols if c in df.columns]
+        ].sum()
+        if metro:
+            df = df[df["dep_code"].isin(metro)].copy()
+        return df
+
+    # Base logement → locataires, HLM, surpeuplement
+    log_cols = ["P22_RP", "P22_RP_LOC", "P22_RP_LOCHLMV",
+                "C22_RP_SUROCC_MOD", "C22_RP_SUROCC_ACC"]
+    df_log = agg_dep(rp_dir / "base-ic-logement-2022_csv.zip", log_cols)
+
+    # Base ménages/familles → monoparentales, ménages 1 pers.
+    men_cols = ["C22_MEN", "C22_MENPSEUL", "C22_MENFAMMONO"]
+    df_men = agg_dep(rp_dir / "base-ic-couples-familles-menages-2022_csv.zip", men_cols)
+
+    # Base population → tranches d'âge 25-54 et 65+
+    pop_cols = ["P22_POP", "P22_POP2539", "P22_POP4054", "P22_POP65P"]
+    df_pop = agg_dep(rp_dir / "base-ic-evol-struct-pop-2022_csv.zip", pop_cols)
+
+    if df_log is None and df_men is None and df_pop is None:
+        print("  ⚠️  Aucune base infracommunale disponible — rp_infracommunal.csv vide")
+        pd.DataFrame(columns=["dep_code"]).to_csv(
+            PROCESSED / "rp_infracommunal.csv", index=False
+        )
+        return
+
+    # Assemblage
+    infra = df_ref[["dep_code"]].copy()
+    if df_log is not None:
+        infra = infra.merge(df_log, on="dep_code", how="left")
+    if df_men is not None:
+        infra = infra.merge(df_men, on="dep_code", how="left")
+    if df_pop is not None:
+        infra = infra.merge(df_pop, on="dep_code", how="left")
+
+    # Calcul des ratios (en %)
+    if df_log is not None:
+        infra["part_locataires"]     = (infra["P22_RP_LOC"]    / infra["P22_RP"] * 100).round(2)
+        infra["part_hlm"]            = (infra["P22_RP_LOCHLMV"] / infra["P22_RP"] * 100).round(2)
+        surocc = infra.get("C22_RP_SUROCC_MOD", 0) + infra.get("C22_RP_SUROCC_ACC", 0)
+        infra["taux_surpeuplement"]  = (surocc / infra["P22_RP"] * 100).round(2)
+
+    if df_men is not None:
+        infra["part_familles_mono"]  = (infra["C22_MENFAMMONO"] / infra["C22_MEN"] * 100).round(2)
+        infra["part_menages_1pers"]  = (infra["C22_MENPSEUL"]   / infra["C22_MEN"] * 100).round(2)
+
+    if df_pop is not None:
+        pop2554 = infra["P22_POP2539"] + infra["P22_POP4054"]
+        infra["part_25_54"]          = (pop2554           / infra["P22_POP"] * 100).round(2)
+        infra["part_65plus"]         = (infra["P22_POP65P"] / infra["P22_POP"] * 100).round(2)
+
+    # Garder uniquement les colonnes finales
+    final_cols = ["dep_code", "part_locataires", "part_hlm", "taux_surpeuplement",
+                  "part_familles_mono", "part_menages_1pers", "part_25_54", "part_65plus"]
+    out_cols = [c for c in final_cols if c in infra.columns]
+    infra[out_cols].to_csv(PROCESSED / "rp_infracommunal.csv", index=False)
+
+    n_ok = infra["part_locataires"].notna().sum() if "part_locataires" in infra.columns else 0
+    print(f"  ✓ rp_infracommunal.csv — {len(infra)} départements, {n_ok} valides pour part_locataires")
 
 
 # ---------------------------------------------------------------------------
@@ -587,7 +678,7 @@ def main():
     print("  Fichiers produits dans data/processed/ :")
     for fname in [
         "surendettement.csv", "filosofi.csv", "filosofi_gini.csv",
-        "chomage.csv", "rp_pop_ref.csv", "minimas_sociaux.csv",
+        "chomage.csv", "rp_pop_ref.csv", "rp_infracommunal.csv", "minimas_sociaux.csv",
     ]:
         path = PROCESSED / fname
         if path.exists():

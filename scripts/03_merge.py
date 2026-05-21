@@ -88,6 +88,7 @@ def main():
     gini    = safe_load("filosofi_gini.csv")
     chomage = safe_load("chomage.csv")
     pop_ref = safe_load("rp_pop_ref.csv")
+    rp_infra = safe_load("rp_infracommunal.csv")
     minimas = safe_load("minimas_sociaux.csv")
 
     # ── 2. Construction de la base ───────────────────────────────────────
@@ -159,16 +160,22 @@ def main():
     base = left_join(base, chomage, chomage_cols, "Chômage")
 
     # RP 2022 populations de référence → population_mun
-    # (bases infracommunales RP 2022 non encore publiées)
     pop_ref_cols = [c for c in ["population_mun"]
                     if not pop_ref.empty and c in pop_ref.columns]
     base = left_join(base, pop_ref, pop_ref_cols, "RP 2022 pop. référence")
 
-    # Variables infracommunales RP (non disponibles tant que bases RP 2022 non publiées)
-    for col in ["part_locataires", "part_hlm", "taux_surpeuplement",
-                "part_familles_mono", "part_menages_1pers", "part_25_54", "part_65plus"]:
-        if col not in base.columns:
-            base[col] = np.nan
+    # RP 2022 bases infracommunales → part_locataires, part_hlm, etc.
+    infra_cols = [c for c in ["part_locataires", "part_hlm", "taux_surpeuplement",
+                               "part_familles_mono", "part_menages_1pers",
+                               "part_25_54", "part_65plus"]
+                  if not rp_infra.empty and c in rp_infra.columns]
+    if infra_cols:
+        base = left_join(base, rp_infra, infra_cols, "RP 2022 infracommunal")
+    else:
+        for col in ["part_locataires", "part_hlm", "taux_surpeuplement",
+                    "part_familles_mono", "part_menages_1pers", "part_25_54", "part_65plus"]:
+            if col not in base.columns:
+                base[col] = np.nan
 
     # Minimas sociaux
     min_cols = [c for c in ["rsa_taux", "prime_activite_taux", "ass_aspa_taux"]

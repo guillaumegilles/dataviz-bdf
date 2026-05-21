@@ -8,7 +8,7 @@ Sources :
   - Banque de France : surendettement départemental via API WebStat (ODS)
   - INSEE FiLoSoFi 2021 + SUPRA 2019
   - INSEE Chômage localisé (TCRD)
-  - INSEE RP 2022 (populations de référence — http://www.insee.fr/fr/statistiques/8290607?sommaire=8290669)
+  - INSEE RP 2022 (populations de référence + bases infracommunales logement/ménages/population)
   - DREES / France Travail : minimas sociaux (RSA, prime d'activité)
   - GeoJSON départements (gregoiredavid/france-geojson)
 """
@@ -263,18 +263,22 @@ def download_chomage():
 
 
 # ---------------------------------------------------------------------------
-# T008 — Bloc RP 2022 : populations de référence
-# Les bases infracommunales RP 2022 ne sont pas encore publiées par l'INSEE.
-# On utilise en attendant les "populations de référence 2022" (communes/dépts).
-# Source : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
+# T008 — Bloc RP 2022 : populations de référence + bases infracommunales
+# Bases infracommunales publiées en octobre 2025.
+# Sources :
+#   - Pop. de référence : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
+#   - Logement          : https://www.insee.fr/fr/statistiques/8647012
+#   - Ménages/Familles  : https://www.insee.fr/fr/statistiques/8647008
+#   - Population        : https://www.insee.fr/fr/statistiques/8647014
 # ---------------------------------------------------------------------------
 
 def download_rp():
-    """Télécharge les populations de référence RP 2022 (populations municipales par département)."""
-    print("\n=== INSEE — RP 2022 (populations de référence) ===")
+    """Télécharge les populations de référence RP 2022 et les bases infracommunales."""
+    print("\n=== INSEE — RP 2022 (populations de référence + bases infracommunales) ===")
     dest_dir = RAW / "rp"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
+    # Populations de référence (agrégat départemental)
     url = "https://www.insee.fr/fr/statistiques/fichier/8290591/ensemble.zip"
     already = list(dest_dir.glob("donnees_departements.csv"))
     if already:
@@ -282,6 +286,30 @@ def download_rp():
         RESULTS["RP pop ref 2022"] = True
     else:
         download_zip(url, dest_dir, label="RP pop ref 2022", headers=HEADERS_INSEE)
+
+    # Bases infracommunales (IRIS) — format CSV dans ZIP, ~30-50 Mo chacune
+    infra_bases = [
+        (
+            "base-ic-logement-2022_csv.zip",
+            "https://www.insee.fr/fr/statistiques/fichier/8647012/base-ic-logement-2022_csv.zip",
+            "RP 2022 logement",
+        ),
+        (
+            "base-ic-couples-familles-menages-2022_csv.zip",
+            "https://www.insee.fr/fr/statistiques/fichier/8647008/"
+            "base-ic-couples-familles-menages-2022_csv.zip",
+            "RP 2022 ménages",
+        ),
+        (
+            "base-ic-evol-struct-pop-2022_csv.zip",
+            "https://www.insee.fr/fr/statistiques/fichier/8647014/"
+            "base-ic-evol-struct-pop-2022_csv.zip",
+            "RP 2022 population",
+        ),
+    ]
+    for fname, url_infra, label in infra_bases:
+        dest = dest_dir / fname
+        download_file(url_infra, dest, headers=HEADERS_INSEE, label=label)
 
 
 # ---------------------------------------------------------------------------
