@@ -12,9 +12,7 @@ Sorties dans data/processed/ :
   filosofi.csv         — FiLoSoFi 2021 (revenu, pauvreté, interdécile)
   filosofi_gini.csv    — FiLoSoFi SUPRA 2019 (Gini)
   chomage.csv          — Chômage localisé INSEE
-  rp_menages.csv       — RP 2021 structure ménages
-  rp_logement.csv      — RP 2021 logement
-  rp_population.csv    — RP 2021 population / démographie
+  rp_pop_ref.csv       — RP 2022 populations de référence (population municipale par département)
   minimas_sociaux.csv  — RSA, prime d'activité, ASS/ASPA
 """
 
@@ -349,198 +347,61 @@ def clean_chomage():
 
 
 # ---------------------------------------------------------------------------
-# T014 — RP 2021 : ménages, logement, population
+# T014 — RP 2022 : populations de référence
+# INSEE RP 2022 populations de référence (communes / depts)
+# Source : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
+# Note : les bases infracommunales RP 2022 ne sont pas encore publiées.
+#        On utilise uniquement la population municipale (PMUN) comme dénominateur
+#        pour le taux de surendettement pour 10 000 habitants.
 # ---------------------------------------------------------------------------
 
 def clean_rp():
-    """Nettoie les bases infracommunales RP 2021 et agrège au niveau département."""
-    print("\n=== Nettoyage RP 2021 ===")
+    """Extrait la population municipale 2022 par département (RP 2022 pop. de référence)."""
+    print("\n=== Nettoyage RP 2022 (populations de référence) ===")
 
     rp_dir = RAW / "rp"
+    dep_ref = load_dep_ref()
 
-    def load_rp_base(pattern: str, label: str) -> pd.DataFrame | None:
-        files = list(rp_dir.glob(f"**/{pattern}"))
-        if not files:
-            print(f"  ⚠️  Fichier {pattern} non trouvé")
-            return None
-        print(f"  ↳ Chargement {files[0].name} …")
-        try:
-            # Les fichiers RP INSEE utilisent souvent ';' comme séparateur
-            df = pd.read_csv(files[0], sep=";", dtype=str, low_memory=False)
-            if "CODGEO" in df.columns:
-                # Extraire le code département (2 premiers caractères)
-                df["DEP"] = df["CODGEO"].str[:2]
-            return df
-        except Exception as exc:
-            print(f"  ✗ Erreur chargement {label} : {exc}")
-            return None
+    # Le ZIP contient donnees_departements.csv directement dans la racine
+    dep_csv = rp_dir / "donnees_departements.csv"
 
-    dep_pattern = r"^([0-9]{2}|2[AB])$"
+    if not dep_csv.exists():
+        # Essayer aussi depuis le ZIP si pas encore extrait
+        import zipfile
+        zip_path = list(rp_dir.glob("ensemble.zip"))
+        if zip_path:
+            with zipfile.ZipFile(zip_path[0]) as z:
+                z.extract("donnees_departements.csv", rp_dir)
+            dep_csv = rp_dir / "donnees_departements.csv"
 
-    # ── Ménages ──────────────────────────────────────────────────────────
-    df_men = load_rp_base("*menages*2021*.csv", "ménages")
-    if df_men is not None and "DEP" in df_men.columns:
-        mask = df_men["DEP"].str.match(dep_pattern, na=False)
-        # Filtrer les 96 départements métropolitains seulement
-        df_men = df_men[mask].copy()
-        num_cols = [c for c in df_men.columns
-                    if c not in ("CODGEO", "DEP", "IRIS", "COM", "REG", "ARR",
-                                 "CV", "TRIRIS", "GRD_QUART", "TYP_IRIS",
-                                 "MODIF_IRIS", "LAB_IRIS", "UU2020", "AU2020",
-                                 "REG", "DEP", "COM", "IRIS")
-                    and df_men[c].str.replace(r"[\d.,\s]", "", regex=True).eq("").all()]
+    if not dep_csv.exists():
+        print(f"  ⚠️  donnees_departements.csv non trouvé dans {rp_dir}")
+        pd.DataFrame(columns=["dep_code", "population_mun"]).to_csv(
+            PROCESSED / "rp_pop_ref.csv", index=False
+        )
+        return
 
-        # Agréger au niveau département
-        try:
-            df_dep_men = df_men.copy()
-            for col in df_dep_men.columns:
-                if col not in ("DEP",):
-                    try:
-                        df_dep_men[col] = pd.to_numeric(
-                            df_dep_men[col].str.replace(",", "."), errors="coerce"
-                        )
-                    except Exception:
-                        pass
-            df_dep_men = df_dep_men.groupby("DEP", as_index=False)[
-                [c for c in df_dep_men.select_dtypes("number").columns]
-            ].sum()
-            df_dep_men = df_dep_men.rename(columns={"DEP": "dep_code"})
+    print(f"  ↳ Chargement {dep_csv.name} …")
+    df = pd.read_csv(dep_csv, sep=";", dtype=str)
 
-            # Calculer les taux si colonnes disponibles
-            cols_up = {c.upper(): c for c in df_dep_men.columns}
+    # Colonnes : REG, Région, DEP, Département, NBARR, NBCAN, NBCOM, PMUN, PTOT
+    df = df.rename(columns={"DEP": "dep_code", "PMUN": "population_mun"})
+    df["population_mun"] = pd.to_numeric(df["population_mun"], errors="coerce")
 
-            def safe_ratio(num_col: str, denom_col: str, pct: float = 100.0):
-                n = cols_up.get(num_col)
-                d = cols_up.get(denom_col)
-                if n and d:
-                    return (df_dep_men[n] / df_dep_men[d].replace(0, float("nan"))) * pct
-                return None
+    # Garder uniquement les 96 départements métropolitains (codes 2 chars: 01-95, 2A, 2B)
+    metro = dep_ref["dep_code"].tolist() if not dep_ref.empty else []
+    if metro:
+        df = df[df["dep_code"].isin(metro)].copy()
+    else:
+        df = df[df["dep_code"].str.match(r"^([0-9]{2}|2[AB])$", na=False)].copy()
 
-            for rate_col, num_key, denom_key in [
-                ("part_familles_mono", "C21_FAMMONO", "C21_FAM"),
-                ("part_menages_1pers", "C21_MENPSEUL", "C21_MEN"),
-            ]:
-                ratio = safe_ratio(num_key, denom_key)
-                if ratio is not None:
-                    df_dep_men[rate_col] = ratio.round(2)
+    df = df[["dep_code", "population_mun"]].copy()
+    df["source_url"] = "https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669"
+    df["source_millesime"] = "2022"
 
-            df_dep_men["annee"] = 2021
-            df_dep_men["source_url"] = "https://www.insee.fr/fr/statistiques/8268828"
-            df_dep_men["source_millesime"] = "2021"
-            df_dep_men.to_csv(PROCESSED / "rp_menages.csv", index=False)
-            print(f"  ✓ rp_menages.csv — {len(df_dep_men)} lignes")
-        except Exception as exc:
-            print(f"  ✗ Erreur agrégation ménages : {exc}")
-
-    # ── Logement ─────────────────────────────────────────────────────────
-    df_log = load_rp_base("*logement*2021*.csv", "logement")
-    if df_log is not None and "DEP" in df_log.columns:
-        mask = df_log["DEP"].str.match(dep_pattern, na=False)
-        df_log = df_log[mask].copy()
-        try:
-            df_dep_log = df_log.copy()
-            for col in df_dep_log.columns:
-                if col != "DEP":
-                    try:
-                        df_dep_log[col] = pd.to_numeric(
-                            df_dep_log[col].str.replace(",", "."), errors="coerce"
-                        )
-                    except Exception:
-                        pass
-            df_dep_log = df_dep_log.groupby("DEP", as_index=False)[
-                [c for c in df_dep_log.select_dtypes("number").columns]
-            ].sum()
-            df_dep_log = df_dep_log.rename(columns={"DEP": "dep_code"})
-
-            cols_up = {c.upper(): c for c in df_dep_log.columns}
-
-            def safe_ratio_log(num_col, denom_col, pct=100.0):
-                n = cols_up.get(num_col)
-                d = cols_up.get(denom_col)
-                if n and d:
-                    return (df_dep_log[n] / df_dep_log[d].replace(0, float("nan"))) * pct
-                return None
-
-            for rate_col, num_key, denom_key in [
-                ("part_locataires",   "P21_RP_LOC",    "P21_RP"),
-                ("part_hlm",          "P21_RP_LOCHLMV", "P21_RP"),
-                ("taux_surpeuplement","P21_RP_SPOC",   "P21_RP"),
-            ]:
-                ratio = safe_ratio_log(num_key, denom_key)
-                if ratio is not None:
-                    df_dep_log[rate_col] = ratio.round(2)
-
-            df_dep_log["annee"] = 2021
-            df_dep_log["source_url"] = "https://www.insee.fr/fr/statistiques/8268838"
-            df_dep_log["source_millesime"] = "2021"
-            df_dep_log.to_csv(PROCESSED / "rp_logement.csv", index=False)
-            print(f"  ✓ rp_logement.csv — {len(df_dep_log)} lignes")
-        except Exception as exc:
-            print(f"  ✗ Erreur agrégation logement : {exc}")
-
-    # ── Population ───────────────────────────────────────────────────────
-    df_pop = load_rp_base("*population*2021*.csv", "population")
-    if df_pop is not None and "DEP" in df_pop.columns:
-        mask = df_pop["DEP"].str.match(dep_pattern, na=False)
-        df_pop = df_pop[mask].copy()
-        try:
-            df_dep_pop = df_pop.copy()
-            for col in df_dep_pop.columns:
-                if col != "DEP":
-                    try:
-                        df_dep_pop[col] = pd.to_numeric(
-                            df_dep_pop[col].str.replace(",", "."), errors="coerce"
-                        )
-                    except Exception:
-                        pass
-            df_dep_pop = df_dep_pop.groupby("DEP", as_index=False)[
-                [c for c in df_dep_pop.select_dtypes("number").columns]
-            ].sum()
-            df_dep_pop = df_dep_pop.rename(columns={"DEP": "dep_code"})
-
-            cols_up = {c.upper(): c for c in df_dep_pop.columns}
-
-            def safe_ratio_pop(num_col, denom_col, pct=100.0):
-                n = cols_up.get(num_col)
-                d = cols_up.get(denom_col)
-                if n and d:
-                    return (df_dep_pop[n] / df_dep_pop[d].replace(0, float("nan"))) * pct
-                return None
-
-            # Part 25-54 ans
-            age_25_54_cols = [
-                k for k in cols_up
-                if re.match(r"P21_POP(25|30|35|40|45|50)(29|34|39|44|49|54)?", k)
-            ]
-            pop_col = cols_up.get("P21_POP")
-            if age_25_54_cols and pop_col:
-                df_dep_pop["part_25_54"] = (
-                    df_dep_pop[[cols_up[c] for c in age_25_54_cols]].sum(axis=1)
-                    / df_dep_pop[pop_col].replace(0, float("nan")) * 100
-                ).round(2)
-
-            for rate_col, num_key, denom_key in [
-                ("part_65plus", "P21_POP65P", "P21_POP"),
-            ]:
-                ratio = safe_ratio_pop(num_key, denom_key)
-                if ratio is not None:
-                    df_dep_pop[rate_col] = ratio.round(2)
-
-            df_dep_pop["annee"] = 2021
-            df_dep_pop["source_url"] = "https://www.insee.fr/fr/statistiques/8268806"
-            df_dep_pop["source_millesime"] = "2021"
-            df_dep_pop.to_csv(PROCESSED / "rp_population.csv", index=False)
-            print(f"  ✓ rp_population.csv — {len(df_dep_pop)} lignes")
-        except Exception as exc:
-            print(f"  ✗ Erreur agrégation population : {exc}")
-
-    # Créer des fichiers vides si les sources n'étaient pas disponibles
-    for fname in ("rp_menages.csv", "rp_logement.csv", "rp_population.csv"):
-        if not (PROCESSED / fname).exists():
-            print(f"  ⚠️  {fname} non généré — fichier vide créé")
-            pd.DataFrame(columns=["dep_code", "annee"]).to_csv(
-                PROCESSED / fname, index=False
-            )
+    df.to_csv(PROCESSED / "rp_pop_ref.csv", index=False)
+    print(f"  ✓ rp_pop_ref.csv — {len(df)} départements")
+    print(f"  ℹ️  Bases infracommunales RP 2022 (locataires, ménages…) non encore publiées")
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +409,7 @@ def clean_rp():
 # ---------------------------------------------------------------------------
 
 def clean_minimas():
+
     """Nettoie les données de minimas sociaux."""
     print("\n=== Nettoyage Minimas sociaux ===")
 
@@ -659,8 +521,7 @@ def main():
     print("  Fichiers produits dans data/processed/ :")
     for fname in [
         "surendettement.csv", "filosofi.csv", "filosofi_gini.csv",
-        "chomage.csv", "rp_menages.csv", "rp_logement.csv",
-        "rp_population.csv", "minimas_sociaux.csv",
+        "chomage.csv", "rp_pop_ref.csv", "minimas_sociaux.csv",
     ]:
         path = PROCESSED / fname
         if path.exists():

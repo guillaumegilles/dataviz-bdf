@@ -20,6 +20,7 @@ Schéma de sortie (25 colonnes minimum) :
   part_locataires, part_hlm, taux_surpeuplement,
   part_familles_mono, part_menages_1pers,
   part_25_54, part_65plus,
+  population_mun,
   taux_pauvrete_t1,
   score_fragilite,
   source_suren, source_filosofi, source_chomage, source_rp
@@ -86,9 +87,7 @@ def main():
     filos   = safe_load("filosofi.csv")
     gini    = safe_load("filosofi_gini.csv")
     chomage = safe_load("chomage.csv")
-    men     = safe_load("rp_menages.csv")
-    log     = safe_load("rp_logement.csv")
-    pop     = safe_load("rp_population.csv")
+    pop_ref = safe_load("rp_pop_ref.csv")
     minimas = safe_load("minimas_sociaux.csv")
 
     # ── 2. Construction de la base ───────────────────────────────────────
@@ -159,20 +158,17 @@ def main():
     chomage_cols = [c for c in ["chomage_taux"] if not chomage.empty and c in chomage.columns]
     base = left_join(base, chomage, chomage_cols, "Chômage")
 
-    # RP Logement → part_locataires, part_hlm, taux_surpeuplement
-    log_cols = [c for c in ["part_locataires", "part_hlm", "taux_surpeuplement"]
-                if not log.empty and c in log.columns]
-    base = left_join(base, log, log_cols, "RP Logement 2021")
+    # RP 2022 populations de référence → population_mun
+    # (bases infracommunales RP 2022 non encore publiées)
+    pop_ref_cols = [c for c in ["population_mun"]
+                    if not pop_ref.empty and c in pop_ref.columns]
+    base = left_join(base, pop_ref, pop_ref_cols, "RP 2022 pop. référence")
 
-    # RP Ménages → part_familles_mono, part_menages_1pers
-    men_cols = [c for c in ["part_familles_mono", "part_menages_1pers"]
-                if not men.empty and c in men.columns]
-    base = left_join(base, men, men_cols, "RP Ménages 2021")
-
-    # RP Population → part_25_54, part_65plus
-    pop_cols = [c for c in ["part_25_54", "part_65plus"]
-                if not pop.empty and c in pop.columns]
-    base = left_join(base, pop, pop_cols, "RP Population 2021")
+    # Variables infracommunales RP (non disponibles tant que bases RP 2022 non publiées)
+    for col in ["part_locataires", "part_hlm", "taux_surpeuplement",
+                "part_familles_mono", "part_menages_1pers", "part_25_54", "part_65plus"]:
+        if col not in base.columns:
+            base[col] = np.nan
 
     # Minimas sociaux
     min_cols = [c for c in ["rsa_taux", "prime_activite_taux", "ass_aspa_taux"]
@@ -182,23 +178,14 @@ def main():
     # ── 4. Dérivations ───────────────────────────────────────────────────
     print("\n  4. Dérivations …")
 
-    # Taux de surendettement pour 1000 ménages (si nb disponible mais pas taux)
+    # Taux de surendettement pour 10 000 habitants (RP 2022 PMUN comme dénominateur)
     if "suren_depot_nb" in base.columns and "suren_depot_taux" not in base.columns:
-        # Nombre moyen de ménages par département (~250 000 en métropole)
-        # On ne peut calculer un taux sans le nombre de ménages
-        # → Utiliser suren_depot_nb comme proxy normalisé si RP disponible
-        if "P21_MEN" in base.columns:
+        if "population_mun" in base.columns and base["population_mun"].notna().any():
             base["suren_depot_taux"] = (
-                base["suren_depot_nb"] / base["P21_MEN"] * 1000
+                base["suren_depot_nb"] / base["population_mun"] * 10_000
             ).round(3)
-        elif not men.empty and "P21_MEN" in men.columns:
-            men_pop = men[["dep_code", "P21_MEN"]].drop_duplicates("dep_code")
-            base = base.merge(men_pop, on="dep_code", how="left")
-            base["suren_depot_taux"] = (
-                base["suren_depot_nb"] / base["P21_MEN"] * 1000
-            ).round(3)
+            print("  ↳ suren_depot_taux = dossiers / 10 000 habitants (RP 2022 PMUN)")
         else:
-            # Normalisation simple par la médiane pour créer un proxy
             base["suren_depot_taux"] = base["suren_depot_nb"]
 
     # Lags t-1 (EN UNITÉS BRUTES avant normalisation)
@@ -264,6 +251,7 @@ def main():
         "revenu_median_uc", "taux_pauvrete", "interdecile_d9d1", "gini",
         "chomage_taux", "chomage_taux_t1",
         "rsa_taux", "prime_activite_taux", "ass_aspa_taux",
+        "population_mun",
         "part_locataires", "part_hlm", "taux_surpeuplement",
         "part_familles_mono", "part_menages_1pers",
         "part_25_54", "part_65plus",

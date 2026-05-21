@@ -8,7 +8,7 @@ Sources :
   - Banque de France : surendettement départemental via API WebStat (ODS)
   - INSEE FiLoSoFi 2021 + SUPRA 2019
   - INSEE Chômage localisé (TCRD)
-  - INSEE RP 2021 (ménages, population, logement, activité)
+  - INSEE RP 2022 (populations de référence — http://www.insee.fr/fr/statistiques/8290607?sommaire=8290669)
   - DREES / France Travail : minimas sociaux (RSA, prime d'activité)
   - GeoJSON départements (gregoiredavid/france-geojson)
 """
@@ -263,28 +263,25 @@ def download_chomage():
 
 
 # ---------------------------------------------------------------------------
-# T008 — Bloc RP 2021 : bases infracommunales
+# T008 — Bloc RP 2022 : populations de référence
+# Les bases infracommunales RP 2022 ne sont pas encore publiées par l'INSEE.
+# On utilise en attendant les "populations de référence 2022" (communes/dépts).
+# Source : https://www.insee.fr/fr/statistiques/8290607?sommaire=8290669
 # ---------------------------------------------------------------------------
 
 def download_rp():
-    """Télécharge les 4 bases infracommunales RP 2021."""
-    print("\n=== INSEE — RP 2021 (bases infracommunales) ===")
+    """Télécharge les populations de référence RP 2022 (populations municipales par département)."""
+    print("\n=== INSEE — RP 2022 (populations de référence) ===")
     dest_dir = RAW / "rp"
+    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    zips = {
-        "RP menages 2021":     ("https://www.insee.fr/fr/statistiques/fichier/8268828/base-ic-menages-2021_csv.zip",    "*menages*"),
-        "RP population 2021":  ("https://www.insee.fr/fr/statistiques/fichier/8268806/base-ic-population-2021_csv.zip", "*population*"),
-        "RP activite 2021":    ("https://www.insee.fr/fr/statistiques/fichier/8268843/base-ic-activite-2021_csv.zip",   "*activite*"),
-        "RP logement 2021":    ("https://www.insee.fr/fr/statistiques/fichier/8268838/base-ic-logement-2021_csv.zip",   "*logement*"),
-    }
-
-    for label, (url, glob_pat) in zips.items():
-        already = list(dest_dir.glob(glob_pat)) if dest_dir.exists() else []
-        if already:
-            print(f"  ✓ Déjà présent : {already[0].name}")
-            RESULTS[label] = True
-        else:
-            download_zip(url, dest_dir, label=label, headers=HEADERS_INSEE)
+    url = "https://www.insee.fr/fr/statistiques/fichier/8290591/ensemble.zip"
+    already = list(dest_dir.glob("donnees_departements.csv"))
+    if already:
+        print(f"  ✓ Déjà présent : {already[0].name}")
+        RESULTS["RP pop ref 2022"] = True
+    else:
+        download_zip(url, dest_dir, label="RP pop ref 2022", headers=HEADERS_INSEE)
 
 
 # ---------------------------------------------------------------------------
