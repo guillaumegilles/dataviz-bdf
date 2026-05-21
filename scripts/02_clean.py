@@ -124,124 +124,85 @@ def clean_surendettement():
 # ---------------------------------------------------------------------------
 
 def clean_filosofi():
-    """Nettoie les données FiLoSoFi 2021 et SUPRA 2019."""
+    """Nettoie les données FiLoSoFi 2023 (format long ODS/SDMX).
+
+    Source : DS_FILOSOFI_CC_2023_data.csv (long format, `;` délimiteur)
+    Mesures extraites au niveau DEP (GEO_OBJECT == 'DEP') :
+      MED_SL       → revenu_median_uc   (niveau de vie médian, €)
+      PR_MD60      → taux_pauvrete      (taux de pauvreté seuil 60 %, %)
+      IR_D9_D1_SL  → interdecile_d9d1   (rapport D9/D1)
+      GI_SL        → gini               (indice de Gini) → filosofi_gini.csv
+
+    Pas de colonne `annee` → jointure sur dep_code seul dans 03_merge.py
+    (les valeurs 2023 servent de référence structurelle pour toutes les années).
+    """
     print("\n=== Nettoyage FiLoSoFi ===")
 
     filosofi_dir = RAW / "filosofi"
-    dep_ref = load_dep_ref()
-
-    # ── FiLoSoFi 2021 ────────────────────────────────────────────────────
-    pattern = list(filosofi_dir.glob("**/*cc*filosofi*2021*.csv"))
-    # Filtre : fichier de niveau département (pas commune, pas EPCI)
-    dep_files = [
-        f for f in pattern
-        if not any(x in f.stem.lower() for x in ["epci", "iris", "arr"])
-    ]
-
-    if not dep_files:
-        print(f"  ⚠️  Aucun fichier FiLoSoFi 2021 trouvé dans {filosofi_dir}")
-        pd.DataFrame(
-            columns=["dep_code", "revenu_median_uc", "taux_pauvrete",
-                     "interdecile_d9d1", "annee", "source_url", "source_millesime"]
-        ).to_csv(PROCESSED / "filosofi.csv", index=False)
-    else:
-        filepath = dep_files[0]
-        print(f"  ↳ Chargement {filepath.name} …")
-        try:
-            df = pd.read_csv(filepath, sep=";", dtype={"CODGEO": str}, low_memory=False)
-        except Exception:
-            df = pd.read_csv(filepath, dtype={"CODGEO": str}, low_memory=False)
-
-        # Filtre : ne conserver que les lignes de niveau département
-        mask_dep = df["CODGEO"].str.match(r"^([0-9]{2}|2[AB])$", na=False)
-        df = df[mask_dep].copy()
-
-        # Renommages
-        rename_map = {}
-        cols = df.columns.str.upper().tolist()
-        for raw_col, new_col in [
-            ("MED21",  "revenu_median_uc"),
-            ("TP6021", "taux_pauvrete"),
-            ("GI21",   "interdecile_d9d1"),
-        ]:
-            # Chercher la colonne (insensible à la casse, avec variantes numériques)
-            matches = [c for c in df.columns if c.upper().startswith(raw_col)]
-            if matches:
-                rename_map[matches[0]] = new_col
-
-        df = df.rename(columns=rename_map)
-        df = df.rename(columns={"CODGEO": "dep_code"})
-        df["annee"] = 2021
-        df["source_url"] = "https://www.insee.fr/fr/statistiques/7756729"
-        df["source_millesime"] = "2021"
-
-        keep_cols = ["dep_code"] + [
-            c for c in ["revenu_median_uc", "taux_pauvrete", "interdecile_d9d1"]
-            if c in df.columns
-        ] + ["annee", "source_url", "source_millesime"]
-        df = df[keep_cols]
-
-        df.to_csv(PROCESSED / "filosofi.csv", index=False)
-        print(f"  ✓ filosofi.csv — {len(df)} lignes, colonnes : {df.columns.tolist()}")
-
-    # ── FiLoSoFi SUPRA 2019 (Gini) ───────────────────────────────────────
-    supra_files = list(filosofi_dir.glob("**/*SUPRA*")) + list(
-        filosofi_dir.glob("**/*supra*")
+    empty_filo = pd.DataFrame(
+        columns=["dep_code", "revenu_median_uc", "taux_pauvrete",
+                 "interdecile_d9d1", "source_url", "source_millesime"]
     )
-    if not supra_files:
-        print("  ⚠️  Aucun fichier SUPRA 2019 trouvé — filosofi_gini.csv vide")
-        pd.DataFrame(
-            columns=["dep_code", "gini", "annee", "source_url", "source_millesime"]
-        ).to_csv(PROCESSED / "filosofi_gini.csv", index=False)
+    empty_gini = pd.DataFrame(
+        columns=["dep_code", "gini", "source_url", "source_millesime"]
+    )
+
+    data_file = filosofi_dir / "DS_FILOSOFI_CC_2023_data.csv"
+    if not data_file.exists():
+        print(f"  ⚠️  Fichier FiLoSoFi 2023 non trouvé dans {filosofi_dir}")
+        empty_filo.to_csv(PROCESSED / "filosofi.csv", index=False)
+        empty_gini.to_csv(PROCESSED / "filosofi_gini.csv", index=False)
         return
 
-    supra_path = supra_files[0]
-    print(f"  ↳ Chargement SUPRA : {supra_path.name} …")
+    print(f"  ↳ Chargement {data_file.name} …")
     try:
-        # Essayer plusieurs onglets pour trouver les données départementales
-        gini_df = None
-        try:
-            xls = pd.ExcelFile(supra_path)
-            for sheet in xls.sheet_names:
-                df_sheet = xls.parse(sheet, dtype=str)
-                if any("DEP" in str(c).upper() or "GIN" in str(c).upper()
-                       for c in df_sheet.columns):
-                    gini_df = df_sheet
-                    break
-        except Exception:
-            gini_df = pd.read_csv(supra_path, sep=";", dtype=str, low_memory=False)
-
-        if gini_df is not None and not gini_df.empty:
-            # Trouver colonne code géo et gini
-            codgeo_col = next(
-                (c for c in gini_df.columns if "cod" in c.lower() or c.upper() == "DEP"),
-                None,
-            )
-            gini_col = next(
-                (c for c in gini_df.columns
-                 if "gini" in c.lower() or "gi19" in c.lower()),
-                None,
-            )
-            if codgeo_col and gini_col:
-                gini_df = gini_df.rename(
-                    columns={codgeo_col: "dep_code", gini_col: "gini"}
-                )
-                mask = gini_df["dep_code"].str.match(
-                    r"^([0-9]{2}|2[AB])$", na=False
-                )
-                gini_df = gini_df[mask][["dep_code", "gini"]].copy()
-                gini_df["annee"] = 2019
-                gini_df["source_url"] = "https://www.insee.fr/fr/statistiques/6036907"
-                gini_df["source_millesime"] = "2019"
-                gini_df.to_csv(PROCESSED / "filosofi_gini.csv", index=False)
-                print(f"  ✓ filosofi_gini.csv — {len(gini_df)} lignes")
-                return
+        df = pd.read_csv(data_file, sep=";", dtype=str, low_memory=False)
     except Exception as exc:
-        print(f"  ⚠️  Extraction Gini SUPRA échouée : {exc}")
+        print(f"  ⚠️  Erreur de lecture FiLoSoFi 2023 : {exc}")
+        empty_filo.to_csv(PROCESSED / "filosofi.csv", index=False)
+        empty_gini.to_csv(PROCESSED / "filosofi_gini.csv", index=False)
+        return
 
-    pd.DataFrame(
-        columns=["dep_code", "gini", "annee", "source_url", "source_millesime"]
-    ).to_csv(PROCESSED / "filosofi_gini.csv", index=False)
+    # Filtrer les lignes de niveau département et exclure les DOM (971-976)
+    df_dep = df[df["GEO_OBJECT"] == "DEP"].copy()
+    df_dep = df_dep[df_dep["GEO"].str.match(r"^([0-9]{2}|2[AB])$", na=False)]
+
+    # Pivoter : une ligne par département
+    MEASURE_MAP = {
+        "MED_SL":      "revenu_median_uc",
+        "PR_MD60":     "taux_pauvrete",
+        "IR_D9_D1_SL": "interdecile_d9d1",
+        "GI_SL":       "gini",
+    }
+    df_dep = df_dep[df_dep["FILOSOFI_MEASURE"].isin(MEASURE_MAP)]
+    df_dep["variable"] = df_dep["FILOSOFI_MEASURE"].map(MEASURE_MAP)
+    df_dep["OBS_VALUE"] = pd.to_numeric(df_dep["OBS_VALUE"], errors="coerce")
+    df_pivot = df_dep.pivot_table(
+        index="GEO", columns="variable", values="OBS_VALUE", aggfunc="first"
+    ).reset_index().rename(columns={"GEO": "dep_code"})
+
+    SOURCE_URL = "https://www.insee.fr/fr/statistiques/8984752"
+    df_pivot["source_url"]       = SOURCE_URL
+    df_pivot["source_millesime"] = "2023"
+
+    # ── filosofi.csv (revenu, pauvreté, interdécile) ─────────────────────────
+    filo_cols = ["dep_code"] + [
+        c for c in ["revenu_median_uc", "taux_pauvrete", "interdecile_d9d1"]
+        if c in df_pivot.columns
+    ] + ["source_url", "source_millesime"]
+    filo_out = df_pivot[filo_cols].copy()
+    filo_out.to_csv(PROCESSED / "filosofi.csv", index=False)
+    print(f"  ✓ filosofi.csv — {len(filo_out)} lignes, colonnes : {filo_out.columns.tolist()}")
+
+    # ── filosofi_gini.csv ─────────────────────────────────────────────────────
+    if "gini" in df_pivot.columns:
+        gini_out = df_pivot[["dep_code", "gini", "source_url", "source_millesime"]].copy()
+        gini_out = gini_out[gini_out["gini"].notna()]
+        gini_out.to_csv(PROCESSED / "filosofi_gini.csv", index=False)
+        print(f"  ✓ filosofi_gini.csv — {len(gini_out)} lignes")
+    else:
+        empty_gini.to_csv(PROCESSED / "filosofi_gini.csv", index=False)
+        print("  ⚠️  Aucun fichier FiLoSoFi SUPRA 2019 trouvé — filosofi_gini.csv vide")
 
 
 # ---------------------------------------------------------------------------

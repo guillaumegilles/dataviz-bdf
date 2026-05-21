@@ -73,24 +73,54 @@ def download_file(url: str, dest, headers: dict | None = None, label: str = "") 
 
 
 def download_zip(
-    url: str, dest_dir, label: str = "", headers: dict | None = None
+    url: str, dest_dir, label: str = "", headers: dict | None = None,
+    retries: int = 3
 ) -> bool:
-    """Télécharge et décompresse un ZIP. Retourne True si succès."""
+    """Télécharge et décompresse un ZIP via curl (robuste SSL). Retourne True si succès."""
+    import time
+    import subprocess
+    import tempfile
     dest_dir = pathlib.Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     print(f"  ↓ Téléchargement ZIP {label} …")
-    try:
-        resp = requests.get(url, headers=headers, timeout=120)
-        resp.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
-            z.extractall(dest_dir)
-        print(f"  ✓ ZIP extrait dans {dest_dir}")
-        RESULTS[label] = True
-        return True
-    except Exception as exc:
-        print(f"  ✗ ERREUR ZIP {label} : {exc}")
-        RESULTS[label] = False
-        return False
+
+    tmp_path = None
+    for attempt in range(1, retries + 1):
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+                tmp_path = pathlib.Path(tmp.name)
+
+            cmd = [
+                "curl", "-L", "--fail", "--retry", "2", "--retry-delay", "3",
+                "--connect-timeout", "30", "--max-time", "300",
+                "-o", str(tmp_path), "--silent", "--show-error",
+            ]
+            if headers:
+                for k, v in headers.items():
+                    cmd += ["-H", f"{k}: {v}"]
+            cmd.append(url)
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=360)
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or f"curl exit {result.returncode}")
+
+            with zipfile.ZipFile(tmp_path) as z:
+                z.extractall(dest_dir)
+            tmp_path.unlink(missing_ok=True)
+            print(f"  ✓ ZIP extrait dans {dest_dir}")
+            RESULTS[label] = True
+            return True
+        except Exception as exc:
+            if tmp_path and tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+            if attempt < retries:
+                wait = 2 ** attempt
+                print(f"  ⚠️  Tentative {attempt}/{retries} échouée ({exc}). Nouvelle tentative dans {wait}s…")
+                time.sleep(wait)
+            else:
+                print(f"  ✗ ERREUR ZIP {label} : {exc}")
+                RESULTS[label] = False
+                return False
 
 
 # ---------------------------------------------------------------------------
@@ -158,23 +188,22 @@ def download_bdf():
 # ---------------------------------------------------------------------------
 
 def download_filosofi():
-    """Télécharge les fichiers FiLoSoFi 2021 et SUPRA 2019."""
+    """Télécharge les fichiers FiLoSoFi 2023 (format long, tous niveaux géographiques)."""
     print("\n=== INSEE — FiLoSoFi ===")
     dest_dir = RAW / "filosofi"
 
-    download_zip(
-        "https://www.insee.fr/fr/statistiques/fichier/7756729/base-cc-filosofi-2021-geo2024_csv.zip",
-        dest_dir,
-        label="FiLoSoFi 2021",
-        headers=HEADERS_INSEE,
-    )
-
-    download_zip(
-        "https://www.insee.fr/fr/statistiques/fichier/6036907/indic-struct-distrib-revenu-2019-SUPRA.zip",
-        dest_dir,
-        label="FiLoSoFi SUPRA 2019",
-        headers=HEADERS_INSEE,
-    )
+    # Passer si le fichier 2023 est déjà présent
+    already = list(dest_dir.glob("DS_FILOSOFI_CC_2023_data.csv"))
+    if already:
+        print(f"  ✓ Déjà présent : {already[0].name}")
+        RESULTS["FiLoSoFi 2023"] = True
+    else:
+        download_zip(
+            "https://www.insee.fr/fr/statistiques/fichier/8984752/FILOSOFI_CC_csv.zip",
+            dest_dir,
+            label="FiLoSoFi 2023",
+            headers=HEADERS_INSEE,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -243,14 +272,19 @@ def download_rp():
     dest_dir = RAW / "rp"
 
     zips = {
-        "RP menages 2021":     "https://www.insee.fr/fr/statistiques/fichier/8268828/base-ic-menages-2021_csv.zip",
-        "RP population 2021":  "https://www.insee.fr/fr/statistiques/fichier/8268806/base-ic-population-2021_csv.zip",
-        "RP activite 2021":    "https://www.insee.fr/fr/statistiques/fichier/8268843/base-ic-activite-2021_csv.zip",
-        "RP logement 2021":    "https://www.insee.fr/fr/statistiques/fichier/8268838/base-ic-logement-2021_csv.zip",
+        "RP menages 2021":     ("https://www.insee.fr/fr/statistiques/fichier/8268828/base-ic-menages-2021_csv.zip",    "*menages*"),
+        "RP population 2021":  ("https://www.insee.fr/fr/statistiques/fichier/8268806/base-ic-population-2021_csv.zip", "*population*"),
+        "RP activite 2021":    ("https://www.insee.fr/fr/statistiques/fichier/8268843/base-ic-activite-2021_csv.zip",   "*activite*"),
+        "RP logement 2021":    ("https://www.insee.fr/fr/statistiques/fichier/8268838/base-ic-logement-2021_csv.zip",   "*logement*"),
     }
 
-    for label, url in zips.items():
-        download_zip(url, dest_dir, label=label, headers=HEADERS_INSEE)
+    for label, (url, glob_pat) in zips.items():
+        already = list(dest_dir.glob(glob_pat)) if dest_dir.exists() else []
+        if already:
+            print(f"  ✓ Déjà présent : {already[0].name}")
+            RESULTS[label] = True
+        else:
+            download_zip(url, dest_dir, label=label, headers=HEADERS_INSEE)
 
 
 # ---------------------------------------------------------------------------
