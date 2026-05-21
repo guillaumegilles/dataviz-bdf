@@ -271,3 +271,66 @@ Toute visualisation produite dans `index.qmd` doit satisfaire les quatre critèr
 | Cartes divergentes (résidus, score fragilité) | `RdYlBu_r` | Centre à zéro identifiable |
 | Corrélation (heatmap) | `coolwarm` symétrique | Convention standard |
 | Scatter plots | `tab10` (catégoriel) | Discernabilité maximale |
+
+---
+
+## 4. Contrat de visualisation MVP — Double choroplèthe (⚠️ Périmètre MVP)
+
+Contrat spécifique à la **première version MVP** : deux cartes choroplèthes côte à côte, surendettement et chômage.
+
+### 4.1 Schéma de la figure MVP
+
+```python
+# Contrat : figure Plotly make_subplots(rows=1, cols=2)
+{
+    "library": "plotly >= 5.18",
+    "layout": "make_subplots(rows=1, cols=2, specs=[[choropleth, choropleth]])",
+    "geojson": "data/geo/departements.geojson",  # gregoiredavid/france-geojson simplifié
+    "featureidkey": "properties.code",            # join key : str 2 chars, ex. "01", "2A"
+    "map_1": {
+        "variable": "suren_depot_taux",
+        "colorscale": "YlOrRd",
+        "colorbar_title": "Dépôts / 1 000 ménages",
+        "hover_template": "<b>{dep_nom}</b><br>Surendettement : {val:.1f}<extra></extra>"
+    },
+    "map_2": {
+        "variable": "chomage_taux",
+        "colorscale": "Blues",
+        "colorbar_title": "Chômage (%)",
+        "hover_template": "<b>{dep_nom}</b><br>Chômage : {val:.1f} %<extra></extra>"
+    },
+    "shared_layout": {
+        "fitbounds": "locations",   # zoom automatique sur la France
+        "visible": False,           # fond de carte masqué (outline only)
+        "height": 500,
+        "margin": {"r": 0, "t": 40, "l": 0, "b": 0}
+    },
+    "title_required": True,          # ex. "Surendettement et chômage par département (2021)"
+    "caption_required": True,        # 1 phrase de conclusion dans le Quarto cell output
+    "source_attribution_required": True  # "Source : Banque de France / INSEE, 2021"
+}
+```
+
+### 4.2 Dataset d'entrée pour le MVP
+
+**Fichier** : `data/processed/analytical_dataset_mvp.csv`
+
+| Colonne | Type | Nullable | Description |
+|---|---|---|---|
+| `dep_code` | `str(2)` | Non | Code INSEE (`"01"`–`"95"`, `"2A"`, `"2B"`) |
+| `dep_nom` | `str` | Non | Nom du département |
+| `annee` | `int` | Non | Année de référence (2021 pour le MVP) |
+| `suren_depot_nb` | `int` | Non | Dépôts de dossiers (absolu, source BdF ODS) |
+| `suren_depot_taux` | `float` | Non | Dépôts pour 1 000 ménages (calculé) |
+| `chomage_taux` | `float` | Non | Taux de chômage localisé annuel moyen (%) |
+| `nb_menages` | `int` | Non | Ménages (RP INSEE 2021, dénominateur) |
+
+**Contraintes minimales MVP** :
+```python
+assert len(df) == 96                          # exactement 96 départements
+assert df['dep_code'].is_unique               # pas de doublons
+assert df['suren_depot_taux'].notna().all()   # variable cible complète
+assert df['chomage_taux'].notna().all()       # variable explicative complète
+assert (df['suren_depot_taux'] > 0).all()
+assert df['chomage_taux'].between(2.0, 25.0).all()
+```

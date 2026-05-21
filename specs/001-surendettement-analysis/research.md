@@ -51,10 +51,36 @@ IFI.M.HDF.SUREN.DEPOT      → Hauts-de-France
 | data.gouv.fr | Seul jeu disponible date de 1995–2010, hors périmètre temporel |
 | Accès manuel (téléchargement navigateur) | Incompatible avec le principe II (Reproductibilité) — aucun script automatisable |
 
-### Plan d'implémentation
-1. Télécharger les PDFs synthèses 2018–2023 via `requests` (URLs directes stables)
-2. Extraire les tableaux département avec `pdfplumber`
-3. Si l'extraction PDF s'avère insuffisante : enregistrer une clé API WebStat gratuite (`developer.webstat.banque-france.fr/user/register`) et vérifier l'existence de séries départementales dans le catalogue IFI
+### ⚠️ Mise à jour MVP (2026-05-20) — API ODS confirmée au niveau département
+
+**La conclusion initiale (PDF uniquement) est OBSOLÈTE.** L'API WebStat expose bien des séries départementales via son endpoint OpenDataSoft (ODS), distinct de l'endpoint SDMX formel.
+
+**Endpoint ODS (opérationnel)** :
+```
+https://webstat.banque-france.fr/api/explore/v2.1/catalog/datasets/observations/exports/csv/
+```
+
+**Clé publique intégrée dans le bundle JS de WebStat** (non documentée officiellement) :
+```
+a78150367a35332580ae1651b4023f0c333e99b6653821d6ac445af9
+```
+
+**Pattern de séries départementales confirmé** :
+```
+IFI.M.D{CODE}.SUREN.DEPOT   ex : IFI.M.D01.SUREN.DEPOT  → Ain
+                                  IFI.M.D2A.SUREN.DEPOT  → Corse-du-Sud
+                                  IFI.M.D2B.SUREN.DEPOT  → Haute-Corse
+```
+Couverture : **données mensuelles depuis 2019-01** pour les 96 départements métropolitains.
+
+**Implémentation existante** : `scripts/01_download.py` implémente déjà cette approche (lignes 100–153).
+
+**Risque** : la clé publique n'est pas versionnée officiellement et pourrait être renouvelée sans préavis. Fallback documenté : enregistrement d'une clé via `developer.webstat.banque-france.fr/user/register`.
+
+### Plan d'implémentation (mis à jour)
+1. Utiliser l'API WebStat ODS (déjà implémentée dans `scripts/01_download.py`) pour les 96 séries `IFI.M.D{CODE}.SUREN.DEPOT`
+2. Agréger les données mensuelles en annuel (somme des 12 mois) dans `scripts/02_clean.py`
+3. Les PDFs synthèses restent disponibles comme source de validation croisée pour les années 2018–2023
 
 ---
 
@@ -225,3 +251,100 @@ X_std = StandardScaler().fit_transform(df[features]) # 2. normalisation z-score
 | Min-max uniquement | Sensible aux outliers (Paris, Val-de-Marne vs. Creuse) ; pas utilisé en économétrie |
 | Z-score uniquement | Perd l'interprétabilité des coefficients pour le rapport |
 | Log-transform | Pertinent pour variables très asymétriques (ex. revenus) — à évaluer sur les distributions, documenté comme option dans le script de nettoyage |
+
+---
+
+## 7. Bibliothèque de visualisation — Choroplèthes MVP
+
+### Question initiale
+Quelle bibliothèque Python utiliser pour les cartes choroplèthes interactives dans le rapport Quarto HTML ?
+
+### Décision
+**Plotly (`plotly.graph_objects.Choropleth` + `make_subplots`)** pour les deux cartes côte à côte.
+
+### Rationale
+
+| Critère | Matplotlib + GeoPandas | **Plotly** | Folium |
+|---|---|---|---|
+| Interactivité HTML (zoom, tooltip) | ❌ Statique (PNG) | ✅ JS natif | ⚠️ Leaflet iframe |
+| Intégration Quarto HTML | ✅ Simple | ✅ Widget Jupyter natif | ⚠️ iframe difficile à intégrer |
+| Layout 2 cartes côte à côte | ✅ `plt.subplots()` | ✅ `make_subplots` | ❌ 1 widget / carte |
+| Tooltips au survol (nom, valeur) | ❌ | ✅ `hovertemplate` | ✅ |
+| Colorblind-safe (`Cividis`, `Blues`) | ✅ | ✅ | ✅ |
+
+Plotly est listé en premier dans les widgets Jupyter natifs de la documentation officielle Quarto (`quarto.org/docs/interactive/widgets/jupyter.html`). La figure est sérialisée en JSON et chargée via CDN Plotly.js — pas besoin d'`embed-resources: true` pour le site hébergé.
+
+### Configuration retenue pour le MVP
+
+```python
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+fig = make_subplots(
+    rows=1, cols=2,
+    specs=[[{"type": "choropleth"}, {"type": "choropleth"}]],
+    subplot_titles=[
+        "Dépôts de dossiers de surendettement (pour 1 000 ménages)",
+        "Taux de chômage localisé (%)"
+    ],
+    horizontal_spacing=0.02
+)
+
+# Carte 1 : Surendettement — YlOrRd (chaleureux, intuitif pour un indicateur de risque)
+fig.add_trace(go.Choropleth(
+    geojson=depts_geojson,
+    locations=df['dep_code'],
+    z=df['suren_depot_taux'],
+    featureidkey="properties.code",
+    colorscale="YlOrRd",
+    colorbar=dict(x=0.46, title="Dépôts / 1 000 ménages"),
+    hovertemplate="<b>%{location}</b><br>Surendettement : %{z:.1f}<extra></extra>",
+), row=1, col=1)
+
+# Carte 2 : Chômage — Blues (palette froide distincte de la première)
+fig.add_trace(go.Choropleth(
+    geojson=depts_geojson,
+    locations=df['dep_code'],
+    z=df['chomage_taux'],
+    featureidkey="properties.code",
+    colorscale="Blues",
+    colorbar=dict(x=1.0, title="Chômage (%)"),
+    hovertemplate="<b>%{location}</b><br>Chômage : %{z:.1f} %<extra></extra>",
+), row=1, col=2)
+
+fig.update_geos(fitbounds="locations", visible=False)
+fig.update_layout(height=500, title_text="...", margin={"r":0,"t":40,"l":0,"b":0})
+```
+
+**Fix VS Code / Positron** :
+```python
+import plotly.io as pio
+pio.renderers.default = "plotly_mimetype+notebook_connected"
+```
+
+### Échelles de couleur — justification accessibilité
+
+| Variable | Échelle | Justification |
+|---|---|---|
+| Surendettement | `YlOrRd` | Séquentielle chaud-rouge ; intuitive pour un indicateur de risque financier ; ColorBrewer, colorblind-safe |
+| Chômage | `Blues` | Séquentielle froide ; visuellement distincte de YlOrRd pour comparaison immédiate ; print-safe |
+| Alternative daltonisme strict | `Cividis` pour les deux | Conçu spécifiquement pour deuteranopie/protanopie (Morgan et al. 2018) |
+
+**Note** : éviter `Rainbow`/`Jet` — non perceptuellement uniformes, interdits en publications scientifiques.
+
+### GeoJSON — join key
+
+Source : `gregoiredavid/france-geojson` (version simplifiée, 569 Ko)
+```
+URL : https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson
+Champ de jointure : properties.code  (ex : "01", "2A", "95")
+```
+⚠️ Les codes sont des chaînes zero-padded. La colonne `dep_code` du DataFrame doit être de type `str`, pas `int`.
+
+### Alternatives considérées
+
+| Alternative | Rejetée parce que |
+|---|---|
+| `matplotlib + geopandas` | Statique (PNG) — perd l'interactivité HTML (tooltips, zoom) |
+| `folium` | Génère des iframes Leaflet incompatibles avec `layout-ncol=2` Quarto et `embed-resources` |
+| `choropleth_mapbox` (Plotly) | Ne fonctionne pas dans `make_subplots` — nécessite un layout Quarto séparé ; tile background non nécessaire pour MVP |
