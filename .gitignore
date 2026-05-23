@@ -31,4 +31,6 @@ Thumbs.db
 _site/
 *.html
 *.pdf
-.quarto/
+
+
+/.quarto/

@@ -2,13 +2,11 @@
 title: "Évolution de l'inclusion financière des français"
 subtitle: "Analyse de la corrélation entre conditions économiques départementales et surendettement"
 author: "Guillaume Gilles"
-date: today
+date: 2026-05-18
 lang: fr
 format:
   html:
     theme: ../../assets/dark.scss
-    toc: true
-    toc-depth: 3
     toc-title: "Table des matières"
     code-fold: true
     code-summary: "Voir le code"
